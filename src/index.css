@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #5D34F7;
+  --color-foreground: #000000;
+
+  --color-primary: #5D34F7;
+  --color-primary-foreground: #FFFFFF;
+
+  --color-secondary: #4024DB;
+  --color-secondary-foreground: #FFFFFF;
+
+  --color-border: #E0E0E0;
+
+  --color-card: #FFFFFF;
+  --color-card-foreground: #000000;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  *,
+  ::after,
+  ::before {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-image: url('./assets/background.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    color: var(--color-foreground);
+    font-family: 'Lora', 'Georgia', serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', 'Georgia', serif;
+    font-weight: 700;
+    color: #2d1a5e;
+    letter-spacing: -0.01em;
+  }
+
+  p, span, li, a, button, input, textarea, label {
+    font-family: 'Lora', 'Georgia', serif;
+  }
+}
+
+
+@keyframes floatUp {
+  0% {
+    transform: translateY(0px) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(-30px) rotate(180deg);
+  }
+
+  100% {
+    transform: translateY(0px) rotate(360deg);
+  }
+}
+
+@keyframes floatDown {
+  0% {
+    transform: translateY(0px) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(30px) rotate(-180deg);
+  }
+
+  100% {
+    transform: translateY(0px) rotate(-360deg);
+  }
+}
+
+.animate-float-up {
+  animation: floatUp 15s ease-in-out infinite;
+}
+
+.animate-float-down {
+  animation: floatDown 20s ease-in-out infinite;
+}
+
+.brand-logo-black {
+  filter: brightness(0) !important;
+  opacity: 1 !important;
+  display: block !important;
+}

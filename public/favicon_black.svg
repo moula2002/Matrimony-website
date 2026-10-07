@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Black background -->
+  <rect width="512" height="512" fill="#000000" rx="0"/>
+
+  <!-- Small floating heart top-center -->
+  <g transform="translate(270, 58) scale(0.85)" fill="none" stroke="white" stroke-width="10" stroke-linejoin="round">
+    <path d="M0,-18 C-5,-28 -22,-28 -22,-12 C-22,2 0,18 0,18 C0,18 22,2 22,-12 C22,-28 5,-28 0,-18 Z"/>
+  </g>
+
+  <!-- Left figure head (circle) -->
+  <circle cx="162" cy="112" r="34" fill="none" stroke="white" stroke-width="12"/>
+
+  <!-- Right figure head (circle) -->
+  <circle cx="310" cy="158" r="26" fill="none" stroke="white" stroke-width="10"/>
+
+  <!-- Left figure body forming left side of heart -->
+  <path d="M162,146 C162,146 130,180 110,230 C88,285 95,340 130,380 C155,407 200,430 256,440"
+        fill="none" stroke="white" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Right figure body forming right side of heart -->
+  <path d="M310,184 C310,184 345,215 360,260 C378,312 365,360 335,395 C310,422 280,436 256,440"
+        fill="none" stroke="white" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Inner heart left arc -->
+  <path d="M162,200 C162,200 185,230 200,270 C215,310 210,355 200,385"
+        fill="none" stroke="white" stroke-width="13" stroke-linecap="round"/>
+
+  <!-- Inner heart right arc -->
+  <path d="M310,230 C310,230 295,265 285,300 C274,340 275,370 278,390"
+        fill="none" stroke="white" stroke-width="11" stroke-linecap="round"/>
+
+  <!-- "Familiess" text -->
+  <text x="256" y="476" 
+        font-family="Georgia, serif" 
+        font-size="52" 
+        font-weight="700"
+        fill="white" 
+        text-anchor="middle"
+        letter-spacing="-1">Familiess</text>
+
+  <!-- "MATRIMONY" small caps text with dashes -->
+  <text x="256" y="500" 
+        font-family="Georgia, serif" 
+        font-size="18" 
+        font-weight="400"
+        fill="white" 
+        text-anchor="middle"
+        letter-spacing="4">— MATRIMONY —</text>
+</svg>

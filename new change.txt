@@ -1,0 +1,144 @@
+*Familees Matrimony all changes* 
+
+Prod changes:
+  ☐ Block ss in all but payment page
+  ☐ Change the banner in feed to show after 10 profiles
+  ☐ change app package name
+  ✔ switch db @done(26-08-14 17:19)
+  ☐ remove all logs 
+
+Extravagant changes:
+  ☐ In our app how a person can refer our app to other and earn refferal incentive !!? And rate our app !!(no details provided)
+
+Todo:
+  ✔ skip option in the professional details page, and family details @done(26-07-08 16:48)
+  ✔ rrearrange the feilds @done(26-07-08 16:20)
+  ✔ select all option @done(26-07-08 17:10)
+  ✔ search bars @done(26-07-08 17:12)
+  ✔ Dup contact info err @done(26-07-08 17:12)
+  ✔ no of matches @done(26-07-08 17:12)
+  ✔ partner preferance @done(26-07-08 17:12)
+  ✔ Feed cues @done(26-07-08 17:12)
+  ✔ split user detials in feed into sections @done(26-07-09 11:21)
+  ✔ do the same in the my profile section and add edit options next to it @done(26-07-10 13:38)
+  ✔ option to download the profile to device, along with the current share option @done(26-07-10 15:02)
+  ✔ add account setting where u can delete your profile, if profile is deleted also delete the chat, add a blocking feature if a profiles is blocked they shouldnt be able to see ur profile and the chats also should not be shown to them @done(26-07-10 17:02)
+  ✔ show phone number after acept @done(26-07-13 12:25)
+  ✔ option to block calls @done(26-07-13 12:25)
+  ✔ gender and religion symbols @done(26-09-04 13:08)
+  ✔ Vedika Kundali Matching API @done(26-07-15 10:13)
+  ✔ Verified profiles to be seen with blue tick @done(26-09-04 16:21)
+  ✔ While signing in it should ask for a photo id proof and selfie , with skip option. @done(26-07-13 17:05)
+  ✔ Photo setting should be available, where a person can choose visibility only on acceptance. @done(26-07-13 13:17)
+  ✔ fetch data from db in the astrology setup @done(26-07-15 10:13)
+  ✔ Create a preferences matched page @done(26-07-15 12:51)
+  ✔ Add a call pop up whn number is tapped @done(26-07-15 14:24)
+  ✔ In the top app bar add a notification icon and plan name @done(26-07-15 13:32)
+  ✔ preferances (change the index) @done(26-07-20 11:24)
+  ✔ make "verify otp" red @done(26-07-20 11:24)
+  ✔ select all button in preferance is leaving out some things @done(26-07-20 11:24)
+  ✔ check the preferances options @done(26-07-20 11:25)
+  ✔ fix the error in plans page @done(26-07-20 17:38)
+  ✔ implement premium plans and locks @done(26-07-20 17:38)
+  ✔ camera option in the verification page @done(26-07-20 11:25)
+  ✔ the otp verification is making the account verification true @done(26-09-22 11:45)
+  ✔ notification for profile views @done(26-07-21 13:13)
+  ✔ profile views and matches are for the plan duration not per day @done(26-09-22 12:50)
+  ✔ plan renewel @done(26-09-22 13:00)
+  ✔ block account settings for free accounts @done(26-09-22 13:03)
+  ✔ check the premium blocks @done(26-09-22 13:08)
+  ✔ implement featured account @done(26-09-22 13:14)
+  ✔ better error handelling for no internet @done(26-09-23 05:41)
+  ✔ check asto and uid @done(26-09-23 05:53)
+  ✔ call, sms, whatsapp links @done(26-07-22 11:16)
+  ✔ incoming calls block @done(26-07-22 11:16)
+  ✔ show own partner preferance in my profile page @done(26-07-22 12:36)
+  ✔ every picture in the profile needs to be approved before its shown to other users @done(26-07-22 12:36)
+  ✔ in download show contact details @done(26-07-22 12:52)
+  ✔ plan name instead of premium in hamburger menu @done(26-07-24 12:46)
+  ✔ in contact info show only 5 digits, limit contacts aswell @done(26-07-24 15:14)
+  ✔ swap call and chat in messg sent next step @done(26-07-24 15:14)
+  ✔ remove video option in chat, cam nd + documents images, add more gifs @done(26-07-24 16:49)
+  ✔ in the alerts open the profile details instead of viewed u tab @done(26-07-27 10:37)
+  ✔ change matched to matches @done(26-07-24 15:14)
+  ✔ for paid members show the contact card in the feed sceen for matched @done(26-07-24 15:14)
+  ✔ check search @done(26-07-27 17:39)
+  ✔ change profile views to contacts @done(26-07-27 14:14)
+  ✔ in the interests and alears show a premeum badge [plan name] @done(26-07-27 10:36)
+  ✔ banners in the premium page @done(26-07-27 14:14)
+  ✔ hide profile optn @done(26-07-27 16:29)
+  ✔ social buttons in the ham menu @done(26-07-27 17:39)
+  ✔ terms and conditions in the my profile screen @done(26-07-27 17:39)
+  ✔ saftey center @done(26-07-27 17:39)
+  ✔ online status in the messages tab @done(26-07-27 17:39)
+  ✔ plan validity in the plan details page @done(26-07-27 13:10)
+  ✔ change feature profile to highlight my profile, and make it first in list, and at bottom show number for support @done(26-07-27 11:56)
+  ✔ in profile details page dont show name on top @done(26-07-24 17:12)
+  ✔ cancle match option @done(26-07-24 17:12)
+  ✔ feature account bug @done(26-07-27 14:14)
+  ✔ description verification @done(26-07-27 11:27)
+  ✔ privacy allow for female free @done(26-07-27 11:27)
+
+  ✔ use location, city and education in the search terms, and add a search filter option (none selected=open to all) @done(26-08-04 10:41)
+  ✔ in the profile cards dont show the picture indicatior line and tapping anywhere on the picture should open the image in full screen @done(26-08-04 10:51)
+   ✔ in the call screen dont auto hide the call controls keep them always visible @done(26-08-04 11:15)
+  ✔ in the contact info box add the email-id only few characters shown and remove the copy to clip board button, and make it so whn a user taps on the box show the full number and email and mark it as contacted and increase the contact count and once shown dont hide it, create a contacts page show all the contact info viewed by the user show the profile picture, name and the contact info @done(26-08-04 12:58)
+  ✔ in the chat screen the video call button is not visible check that @done(26-08-04 14:14)
+  ✔ in the intrests page make the matched profiles green instead of the pill make the whole card green, and in recived intrests change the matches tag to matched @done(26-08-04 15:20)
+  ✔ in plan details enhance account addons change contacts to add contacts and move it to the second spot, make the support txt as a similar box and show a call button and change the name to VIP support @done(26-08-04 16:03)
+  ✔ in the plan page show payment history and option to upload ss record the payment as soon as pay is tapped mark it as incomplete untill the ref id and ss are uploaded @done(26-08-04 16:03)
+  ✔ in the profile details page also show the FAM id with the same copy function @done(26-08-04 16:04)
+  ✔ in the feed and prfile details page change the no of matches count to show the profile created by [myself, sibbling, parent ect] @done(26-08-04 16:04)
+  ✔ in the main chat screen add a call history button and show the call logs @done(26-08-04 17:37)
+  ✔ for the verify opt option during set up auto submit the otp once 6 digits are entered @done(26-08-04 17:21)
+  ✔ whn a user blocks send the last 5 messages along with the block request @done(26-08-04 16:30)
+  ✔ free users can see messages @done(26-08-04 17:22)
+  ✔ only count opening the picutres in full as view @done(26-08-05 10:04)
+  ✔ change the feed page to scroll for next profile instead of swipe, show the current profile card but only till the about me section all other details will be seen whn the user taps on the card (count as view) opens profile details page, @done(26-08-05 17:39)
+  ✔ change matches to send intrests @done(26-08-05 12:34)
+  ✔ show a live count of howmany profiles match the filters in the save preferance button and the search @done(26-08-05 12:27)
+  ✔ show the banner after scrolling 10 profiles @done(26-08-05 12:27)
+  ✔ in edit profile mode the sub community is caste show the same options shown during sign up (fetched from server) @done(26-08-05 12:45)
+  ✔ move the time of birth to the location and education page in and use the city entered there for the astrology api @done(26-08-05 17:39)
+  ✔ in partner preferance show all the details  and keep it standerd across all profiles @done(26-08-05 17:39)
+  ✔ if the plan dosent have video calling option block the video call option and also the switch option in the call screen @done(26-08-05 17:39)
+  ✔ ignore the picture verification lock on the my profile screen show the image irrespective of the verification status @done(26-08-05 17:39)
+  ✔ in the profile the sibblings option is not shown fix @done(26-08-05 12:45)
+
+  ✔ TC and Privacy Policy @done(26-08-10 15:05)
+  ✔ 10 pictures per account @done(26-08-10 15:05)
+  ✔ Edit option for hobbies n interest @done(26-08-11 10:18)
+  ✔ marital status add kids(filter not working) @done(26-08-11 17:53)
+  ✔ hamburger menu feed tabs @done(26-08-11 10:22)
+  ✔ contact info option @done(26-08-11 17:44)
+  ✔ search (show all accounts exept blocked ones) @done(26-08-12 13:07)
+  ✔ pic verification show to users @done(26-08-11 10:26)
+  ✔ spoken languages @done(26-08-11 17:53)
+  ✔ partner prefarance arrow @done(26-08-11 10:38)
+  ✔ edit options @done(26-08-11 10:26)
+  ✔ rm cllg @done(26-08-11 10:26)
+  ✔ better UI for no matches and other empty pages @done(26-08-11 12:12)
+  ✔ VIP consultant @done(26-08-11 17:03)
+  ✔ Partner prefarance not applying when 0 @done(26-08-12 13:07)
+  
+  ☐ A paid user can view only 5 contacts per day
+  ☐ in hamburger menu if I press alerts , it's going plan details
+  ☐ hide profile works like insta account deactivation, instead  user is still able to see their profile n matches, only cannot send interest, also hide is for a limited period(add this period as a setting in the db)
+  ☐ fix:After hide touch, logged out, logging again, photo not seen, earlier in pending verification,
+  ☐ in the partner prefarances the select all button will set it as no prefarance change that to all selected
+  ☐ the banners should redirect the user to call the VIP support number
+  ☐ for vip users right now only the call consultant button is shown, along with that show the normal send intrest and other interactions
+  ☐ split the name into 2 parts last name and surname part
+  ☐ the old premium plans page(purple boxes) is still present in the app remove that and make tick marks(outline and solid) and strike through into the plans for features available and un available 
+  ☐ in the feed page add a more profiles tab which should show profiles which are not in our partner prefarance and sort them by VIP>other premium plans>free users
+  ☐ change the call and messaging block to allow calls and chats from a premium member to a free member, calls only from premium to free and chat to and from both premium and free, for free to free no in app calls and txts should be allowed 
+  ☐ in the intrests page there is a outline and a badge for premium profiles that goes away once the intrest is accepted make it show at all times, and change it to 2 commom words premium for all the premium plans and VIP with diffrent colours and gradients for plans with the managed by us tag
+  ☐ in all the text feilds in the signup process and the edit page limit the numbers that can be entered to 4 and for feilds which dont require numbers in them just completly block the numbers
+  ☐ in intrest page add a counter to show howmany accepted profiles 
+  ☐ in the new and dicover tabs dont show matched profiles(do it in the app not the server or the search will break)
+  ☐ Where is the option to edit this message, and make custom., 1st initial text
+  ☐ Remove email,, in dialog box, only u can show call , text , whatsapp directly ,, Or only call (inside it shows normal n whatsapp) text (inside it shows normal or WhatsApp)
+  ☐ After matched, before opening profile only it's asking view plans , No Inside profile at contact section only it should ask
+  ☐ User is not able to change her dp picture make it seperate
+  ☐ Please remove ' X ' put youtube in that place: https://www.youtube.com/@familiess_GSN
+  ✔ Show phone number only after matched " this tab needed, if user don't select this , to a paid member liked profile contact is directly available, even if they have not seen   that interest @done(26-09-04 11:37)
