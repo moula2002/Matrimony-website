@@ -7,6 +7,8 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import loadingImg from '../assets/loading.png';
 import CallModal from '../components/CallModal';
+import ContactInfoCard from '../components/ContactInfoCard';
+import { getCachedUnlockedContacts, syncContactedProfiles } from '../utils/contactManager';
 
 const getReligionIcon = (rel) => {
   const icons = {
@@ -33,6 +35,7 @@ export default function Matches() {
   const [isMatchingKundali, setIsMatchingKundali] = useState(false);
   const [kundaliError, setKundaliError] = useState('');
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
+  const [unlockedContacts, setUnlockedContacts] = useState(getCachedUnlockedContacts());
   const navigate = useNavigate();
 
   const isPremium = currentUserProfile?.premiumMembership?.isPremium || false;
@@ -86,6 +89,11 @@ export default function Matches() {
       try {
         const res = await api.get('/users/profile');
         setCurrentUserProfile(res.data);
+        if (res.data?.premiumMembership?.isPremium) {
+          syncContactedProfiles().then((cached) => {
+            if (cached) setUnlockedContacts(cached);
+          });
+        }
       } catch (err) {
         console.error('Error fetching current user profile:', err);
       }
@@ -94,6 +102,21 @@ export default function Matches() {
     fetchMutualMatches();
     fetchCurrentUser();
   }, []);
+
+  const handleContactUnlocked = (targetId, unlockedData) => {
+    setUnlockedContacts((prev) => ({
+      ...prev,
+      [targetId]: unlockedData
+    }));
+    if (previewMatch && (previewMatch._id === targetId || previewMatch.id === targetId)) {
+      setPreviewMatch((prev) => ({
+        ...prev,
+        hasContacted: true,
+        phone: unlockedData.phone,
+        email: unlockedData.email
+      }));
+    }
+  };
 
   return (
     <div className="bg-transparent min-h-screen py-8 px-4 sm:px-6">
@@ -409,77 +432,21 @@ export default function Matches() {
 
                 {/* Footer buttons */}
                 <div className="border-t border-slate-100 pt-6 mt-6 space-y-4">
-                  {previewMatch.phone && (
-                    <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 flex items-center justify-between">
-                      {!isPremium ? (
-                        <>
-                          <div className="flex-1">
-                            <h4 className="text-xs font-black uppercase text-emerald-600 tracking-wider mb-1">Contact Details</h4>
-                            <p className="text-emerald-700 font-extrabold text-sm filter blur-[4px] select-none">
-                              📞 {previewMatch.countryCode || '+91'} {previewMatch.phone ? previewMatch.phone.substring(0, 5) + 'XXXXX' : '98765XXXXX'}
-                            </p>
-                            {previewMatch.email && (
-                              <p className="text-emerald-800 font-bold text-xs mt-0.5 filter blur-[3px] select-none">
-                                ✉️ {previewMatch.email.substring(0, 3)}***@***.com
-                              </p>
-                            )}
-                          </div>
-                          <button 
-                            onClick={() => navigate('/plans')}
-                            className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold px-4 py-2 rounded-xl transition shadow-md whitespace-nowrap text-xs cursor-pointer shrink-0"
-                          >
-                            View Details
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <div>
-                            <h4 className="text-xs font-black uppercase text-emerald-600 tracking-wider mb-1">Contact Details</h4>
-                            <p 
-                              onClick={() => {
-                                if (previewMatch.settings?.allowVoiceAndVideoCalls === false) {
-                                  alert('This member has disabled incoming calls.');
-                                  return;
-                                }
-                                setCallModalData({
-                                  isOpen: true,
-                                  phone: `${previewMatch.countryCode || ''} ${previewMatch.phone}`,
-                                  name: previewMatch.name,
-                                  photo: previewMatch.photo
-                                });
-                              }}
-                              className="text-emerald-900 font-extrabold text-sm hover:underline cursor-pointer flex items-center gap-1.5"
-                            >
-                              📞 {previewMatch.countryCode || ''} {previewMatch.phone}
-                            </p>
-                            {previewMatch.email && (
-                              <p className="text-emerald-800 font-bold text-xs mt-0.5">
-                                ✉️ {previewMatch.email}
-                              </p>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => {
-                              if (previewMatch.settings?.allowVoiceAndVideoCalls === false) {
-                                alert('This member has disabled incoming calls.');
-                                return;
-                              }
-                              setCallModalData({
-                                isOpen: true,
-                                phone: `${previewMatch.countryCode || ''} ${previewMatch.phone}`,
-                                name: previewMatch.name,
-                                photo: previewMatch.photo
-                              });
-                            }}
-                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0"
-                          >
-                            <FontAwesomeIcon icon={faPhone} className="text-xs" />
-                            <span>Call</span>
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
+                  {/* Contact Info: Only 5 digits shown until unlocked, limits enforced */}
+                  <ContactInfoCard
+                    targetUser={previewMatch}
+                    isPremium={isPremium}
+                    unlockedMap={unlockedContacts}
+                    onUnlockSuccess={handleContactUnlocked}
+                    onCall={(phone, name, photo) => {
+                      setCallModalData({
+                        isOpen: true,
+                        phone,
+                        name,
+                        photo
+                      });
+                    }}
+                  />
                   <div className="flex gap-4">
                     <button
                       onClick={() => navigate('/messages')}

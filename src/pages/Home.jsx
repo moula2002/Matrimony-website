@@ -434,64 +434,53 @@ export default function Home() {
 
           {/* Card 2: Dynamic Featured Banner Card */}
           {loading ? (
-            <div className="bg-[#b7b9f8] rounded-[28px] p-10 animate-pulse h-72 flex items-center justify-center">
+            <div className="bg-slate-200/60 rounded-[28px] animate-pulse h-60 sm:h-80 md:h-96 w-full flex items-center justify-center shadow-xl">
               <div className="h-8 bg-white/40 rounded w-1/3" />
             </div>
           ) : banners.length > 0 && (() => {
             const currentBanner = banners[activeBannerIndex] || banners[0];
             return (
-              <div className="bg-[#b7b9f8] rounded-[28px] p-6 sm:p-8 md:p-10 shadow-xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6 transition-all duration-500">
-                
-                {/* Left Content */}
-                <div className="flex-1 space-y-2 text-left z-10">
-                  <span className="bg-[#fff2d6] text-[#b07300] font-black text-[11px] px-3.5 py-1 rounded-full uppercase tracking-wider inline-block shadow-2xs">
-                    {currentBanner.tag}
-                  </span>
-                  <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tight leading-tight pt-1">
-                    {currentBanner.title}
-                  </h2>
-                  <p className="text-[#ff4500] font-extrabold text-sm sm:text-base md:text-lg">
-                    {currentBanner.subtitle}
-                  </p>
-                  
-                  <div className="pt-4">
-                    <button
-                      onClick={() => {
-                        navigate(currentBanner.linkUrl || '/preference-matches');
-                      }}
-                      className="bg-[#ff4500] hover:bg-[#e63e00] text-white font-black text-sm sm:text-base px-8 py-3.5 rounded-full shadow-lg shadow-orange-500/30 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
-                    >
-                      {currentBanner.buttonText || 'Get Started'}
-                    </button>
-                  </div>
-
-                  {/* Carousel Dots */}
-                  {banners.length > 1 && (
-                    <div className="flex items-center justify-center md:justify-start gap-2 pt-6">
-                      {banners.map((b, idx) => (
-                        <span
-                          key={b.id || idx}
-                          onClick={() => setActiveBannerIndex(idx)}
-                          className={`transition-all duration-300 cursor-pointer ${
-                            activeBannerIndex === idx
-                              ? 'w-7 h-2.5 rounded-full bg-[#ff4500]'
-                              : 'w-2.5 h-2.5 rounded-full bg-orange-400/80 hover:bg-orange-500'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Right Image Container */}
-                <div className="w-full md:w-72 lg:w-80 h-64 sm:h-72 rounded-[24px] overflow-hidden bg-white/20 p-2 shadow-inner border border-white/40 flex items-center justify-center shrink-0 z-10 transition-all duration-500">
+              <div className="rounded-[28px] shadow-xl relative overflow-hidden group transition-all duration-500 w-full bg-white border border-white/20">
+                {/* Full Size Banner Image */}
+                <div
+                  className={`w-full relative overflow-hidden ${currentBanner.linkUrl ? 'cursor-pointer' : ''}`}
+                  onClick={() => {
+                    if (currentBanner.linkUrl) {
+                      if (currentBanner.linkUrl.startsWith('http')) {
+                        window.open(currentBanner.linkUrl, '_blank', 'noopener,noreferrer');
+                      } else {
+                        navigate(currentBanner.linkUrl);
+                      }
+                    }
+                  }}
+                >
                   <img
                     src={currentBanner.image}
-                    alt={currentBanner.title}
-                    className="w-full h-full object-cover rounded-[18px]"
+                    alt={currentBanner.title || 'Featured Banner'}
+                    className="w-full h-auto min-h-[220px] max-h-[500px] object-cover rounded-[28px] transition-transform duration-500 group-hover:scale-[1.01]"
                   />
                 </div>
 
+                {/* Carousel Dots */}
+                {banners.length > 1 && (
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2 z-20 bg-black/40 backdrop-blur-xs px-3.5 py-1.5 rounded-full shadow-md">
+                    {banners.map((b, idx) => (
+                      <button
+                        key={b.id || idx}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveBannerIndex(idx);
+                        }}
+                        className={`transition-all duration-300 cursor-pointer border-0 p-0 ${
+                          activeBannerIndex === idx
+                            ? 'w-7 h-2 rounded-full bg-[#ff4500] shadow-sm'
+                            : 'w-2 h-2 rounded-full bg-white/70 hover:bg-white'
+                        }`}
+                        title={`Banner ${idx + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })()}

@@ -176,7 +176,7 @@ export default function Notifications() {
             }`}
           >
             <FontAwesomeIcon icon={faEye} className={activeTab === 'views' ? 'text-amber-300' : 'text-amber-500'} />
-            <span>Profile Views</span>
+            <span>Contacts</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'views' ? 'bg-white/20 text-white' : 'bg-amber-50 text-amber-600'}`}>
               {viewsCount}
             </span>
@@ -416,7 +416,7 @@ export default function Notifications() {
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                       <FontAwesomeIcon icon={faEye} className="text-amber-500 text-base" />
-                      <span>Recent Profile Views</span>
+                      <span>Recent Contacts Viewed</span>
                     </h2>
                     <span className="px-2.5 py-1 bg-amber-50 text-amber-600 text-xs font-extrabold rounded-lg">
                       {viewsCount} Views

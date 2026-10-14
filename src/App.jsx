@@ -22,6 +22,7 @@ import ResetPassword from './pages/ResetPassword';
 import ScrollToTop from './components/ScrollToTop';
 import Search from './pages/Search';
 import MembershipPlans from './pages/MembershipPlans';
+import Contacts from './pages/Contacts';
 
 function App() {
   return (
@@ -45,9 +46,11 @@ function App() {
           <Route path="/preference-matches" element={<PreferenceMatches />} />
           <Route path="/interests" element={<Interests />} />
           <Route path="/messages" element={<Messages />} />
+          <Route path="/contacts" element={<Contacts />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/search" element={<Search />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/profile/:id" element={<Profile />} />
           <Route path="/plans" element={<MembershipPlans />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/help" element={<Help />} />

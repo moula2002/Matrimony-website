@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import ShareModal from '../components/ShareModal';
 import CallModal from '../components/CallModal';
+import ContactInfoCard from '../components/ContactInfoCard';
+import { getCachedUnlockedContacts, syncContactedProfiles } from '../utils/contactManager';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import loadingImg from '../assets/loading.png';
 
@@ -256,6 +258,8 @@ export default function Profile() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
+  const [viewerUser, setViewerUser] = useState(null);
+  const [unlockedContacts, setUnlockedContacts] = useState(getCachedUnlockedContacts());
 
   // Edit states
   const [profileFor, setProfileFor] = useState('');
@@ -547,8 +551,23 @@ export default function Profile() {
   const fetchProfile = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/users/profile');
+      const endpoint = id ? `/users/profile/${id}` : '/users/profile';
+      const response = await api.get(endpoint);
       setProfile(response.data);
+
+      if (id) {
+        try {
+          const viewerRes = await api.get('/users/profile');
+          setViewerUser(viewerRes.data);
+          if (viewerRes.data?.premiumMembership?.isPremium) {
+            syncContactedProfiles().then((cached) => {
+              if (cached) setUnlockedContacts(cached);
+            });
+          }
+        } catch (vErr) {
+          console.warn('Could not fetch viewer profile in Profile.jsx', vErr);
+        }
+      }
       if (response.data) {
         setEmail(response.data.email || '');
         if (response.data.phone) {
@@ -1975,32 +1994,51 @@ export default function Profile() {
                       </svg>
                       <span>Contact Info</span>
                     </div>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('contact'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Contact Info">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('contact'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Contact Info">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </h3>
-                  <div className="space-y-3">
-                    <ProfileItem icon={<Mail size={16} />} label="Email ID" value={email} />
-                    <ProfileItem 
-                      icon={<Phone size={16} />} 
-                      label="Phone" 
-                      value={phone} 
-                      isPhone={true}
-                      onClick={() => {
-                        if (!phone) return;
-                        if (id && profile?.settings?.allowVoiceAndVideoCalls === false) {
-                          alert('This member has disabled incoming calls.');
-                          return;
-                        }
+                  {id ? (
+                    <ContactInfoCard
+                      targetUser={profile}
+                      isPremium={viewerUser?.premiumMembership?.isPremium || false}
+                      unlockedMap={unlockedContacts}
+                      onUnlockSuccess={(targetId, unlockedData) => {
+                        setUnlockedContacts((prev) => ({ ...prev, [targetId]: unlockedData }));
+                        if (unlockedData.phone) setPhone(unlockedData.phone);
+                        if (unlockedData.email) setEmail(unlockedData.email);
+                      }}
+                      onCall={(callPhone, callName, callPhoto) => {
                         setCallModalData({
                           isOpen: true,
-                          phone: `${countryCode} ${phone}`,
-                          name: profile?.name || 'My Profile',
-                          photo: profile?.photos && profile.photos[0] ? profile.photos[0] : null
+                          phone: callPhone,
+                          name: callName,
+                          photo: callPhoto
                         });
                       }}
                     />
-                  </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <ProfileItem icon={<Mail size={16} />} label="Email ID" value={email} />
+                      <ProfileItem 
+                        icon={<Phone size={16} />} 
+                        label="Phone" 
+                        value={phone} 
+                        isPhone={true}
+                        onClick={() => {
+                          if (!phone) return;
+                          setCallModalData({
+                            isOpen: true,
+                            phone: `${countryCode} ${phone}`,
+                            name: profile?.name || 'My Profile',
+                            photo: profile?.photos && profile.photos[0] ? profile.photos[0] : null
+                          });
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* PARTNER PREFERENCES (VIEW MODE) */}

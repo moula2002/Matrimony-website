@@ -8,6 +8,9 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import api, { getPhotoUrl } from '../api/axios';
 import loadingImg from '../assets/loading.png';
+import CallModal from '../components/CallModal';
+import ContactInfoCard from '../components/ContactInfoCard';
+import { getCachedUnlockedContacts, syncContactedProfiles } from '../utils/contactManager';
 
 export default function Search() {
   const [profile, setProfile] = useState(null);
@@ -20,6 +23,8 @@ export default function Search() {
   const [expandedCards, setExpandedCards] = useState({});
   const [previewMatch, setPreviewMatch] = useState(null);
   const [activePreviewImage, setActivePreviewImage] = useState(null);
+  const [callModalData, setCallModalData] = useState({ isOpen: false, phone: '', name: '', photo: '' });
+  const [unlockedContacts, setUnlockedContacts] = useState(getCachedUnlockedContacts());
   const navigate = useNavigate();
 
   // Load current user profile initially
@@ -28,6 +33,11 @@ export default function Search() {
       try {
         const res = await api.get('/users/profile');
         setProfile(res.data);
+        if (res.data?.premiumMembership?.isPremium) {
+          syncContactedProfiles().then((cached) => {
+            if (cached) setUnlockedContacts(cached);
+          });
+        }
       } catch (err) {
         console.error('Error fetching profile in Search:', err);
       } finally {
@@ -36,6 +46,21 @@ export default function Search() {
     };
     fetchProfile();
   }, []);
+
+  const handleContactUnlocked = (targetId, unlockedData) => {
+    setUnlockedContacts((prev) => ({
+      ...prev,
+      [targetId]: unlockedData
+    }));
+    if (previewMatch && (previewMatch._id === targetId || previewMatch.id === targetId)) {
+      setPreviewMatch((prev) => ({
+        ...prev,
+        hasContacted: true,
+        phone: unlockedData.phone,
+        email: unlockedData.email
+      }));
+    }
+  };
 
   const handleSearchSubmit = async (e) => {
     if (e) e.preventDefault();
@@ -452,35 +477,62 @@ export default function Search() {
                   </div>
                 </div>
 
-                {/* Footer buttons */}
-                <div className="border-t border-slate-100 pt-6 mt-6 flex gap-4">
-                  {isSent ? (
-                    <div className="w-full py-3.5 bg-emerald-50 text-emerald-700 rounded-2xl font-black text-center text-sm flex items-center justify-center gap-1.5 border border-emerald-150 shadow-inner">
-                      <FontAwesomeIcon icon={faCheck} className="text-base" />
-                      Interest Sent Successfully
-                    </div>
-                  ) : (
-                    <button
-                      disabled={isSending}
-                      onClick={() => handleSendInterest(previewMatch._id)}
-                      className="w-full py-3.5 bg-gradient-to-r from-[#5D34F7] to-[#4024DB] hover:from-[#4f27e5] hover:to-[#381fcc] text-white font-black rounded-2xl text-sm shadow-lg shadow-[#5D34F7]/25 hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
-                    >
-                      {isSending ? (
-                        <FontAwesomeIcon icon={faSpinner} spin className="text-sm" />
-                      ) : (
-                        <>
-                          <FontAwesomeIcon icon={faHeart} className="text-base" />
-                          Send Connection Interest
-                        </>
-                      )}
-                    </button>
-                  )}
+                {/* Footer buttons & Contact Info */}
+                <div className="border-t border-slate-100 pt-5 mt-5 space-y-4">
+                  {/* Contact Info Box: 5 digits shown until unlocked, limits enforced */}
+                  <ContactInfoCard
+                    targetUser={previewMatch}
+                    isPremium={profile?.premiumMembership?.isPremium || false}
+                    unlockedMap={unlockedContacts}
+                    onUnlockSuccess={handleContactUnlocked}
+                    onCall={(phone, name, photo) => {
+                      setCallModalData({
+                        isOpen: true,
+                        phone,
+                        name,
+                        photo
+                      });
+                    }}
+                  />
+
+                  <div className="flex gap-4">
+                    {isSent ? (
+                      <div className="w-full py-3.5 bg-emerald-50 text-emerald-700 rounded-2xl font-black text-center text-sm flex items-center justify-center gap-1.5 border border-emerald-150 shadow-inner">
+                        <FontAwesomeIcon icon={faCheck} className="text-base" />
+                        Interest Sent Successfully
+                      </div>
+                    ) : (
+                      <button
+                        disabled={isSending}
+                        onClick={() => handleSendInterest(previewMatch._id)}
+                        className="w-full py-3.5 bg-gradient-to-r from-[#5D34F7] to-[#4024DB] hover:from-[#4f27e5] hover:to-[#381fcc] text-white font-black rounded-2xl text-sm shadow-lg shadow-[#5D34F7]/25 hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                      >
+                        {isSending ? (
+                          <FontAwesomeIcon icon={faSpinner} spin className="text-sm" />
+                        ) : (
+                          <>
+                            <FontAwesomeIcon icon={faHeart} className="text-base" />
+                            Send Connection Interest
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {/* Call Modal */}
+      <CallModal
+        isOpen={callModalData.isOpen}
+        onClose={() => setCallModalData({ ...callModalData, isOpen: false })}
+        phone={callModalData.phone}
+        name={callModalData.name}
+        photo={callModalData.photo}
+      />
 
     </div>
   );
