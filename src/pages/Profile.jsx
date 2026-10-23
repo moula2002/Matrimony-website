@@ -1272,15 +1272,36 @@ export default function Profile() {
                   </linearGradient>
                 </defs>
               </svg>
-              <span>My Profile & Preferences</span>
+              <span>{id ? `${fullName || p.name || 'Member'}'s Profile` : 'My Profile & Preferences'}</span>
             </h1>
             <p className="text-slate-400 text-xs font-bold uppercase mt-1 tracking-wider">
-              Manage your personal matrimony portfolio and search filters
+              {id ? `UID: ${profile?.uid || id}` : 'Manage your personal matrimony portfolio and search filters'}
             </p>
           </div>
 
           <div className="flex gap-2">
-            {activeTab === 'profile' && (
+            {id ? (
+              <>
+                <button
+                  onClick={() => navigate(-1)}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
+                >
+                  ← Back
+                </button>
+                <button
+                  onClick={() => handleShareProfile(profile)}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-50 border border-indigo-100 text-[#5D34F7] hover:bg-[#5D34F7] hover:text-white rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
+                >
+                  <Share2 size={16} /> Share
+                </button>
+                <button
+                  onClick={() => handleDownloadProfile(profile)}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-violet-50 border border-violet-100 text-violet-600 hover:bg-violet-600 hover:text-white rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
+                >
+                  <Download size={16} /> Download
+                </button>
+              </>
+            ) : activeTab === 'profile' && (
               !isEditing ? (
                 <>
                   <button
@@ -1340,30 +1361,32 @@ export default function Profile() {
       )}
 
       {/* Tabs Switcher */}
-      <div className="max-w-7xl mx-auto lg:mx-0 lg:ml-6 xl:ml-10 px-4 mt-6 lg:px-8">
-        <div className="bg-white rounded-3xl p-2 shadow-sm border border-slate-100 flex gap-1 w-full sm:w-fit">
-          <button
-            onClick={() => { setActiveTab('profile'); setIsEditing(false); }}
-            className={`px-6 py-3 rounded-2xl text-xs font-black tracking-wide uppercase transition-all duration-200 flex-1 sm:flex-initial cursor-pointer ${
-              activeTab === 'profile'
-                ? 'bg-gradient-to-r from-[#5D34F7] to-[#4024DB] text-white shadow-md shadow-[#5D34F7]/15'
-                : 'bg-transparent text-gray-600 hover:bg-slate-50 hover:text-slate-800'
-            }`}
-          >
-            My Profile
-          </button>
-          <button
-            onClick={() => setActiveTab('preferences')}
-            className={`px-6 py-3 rounded-2xl text-xs font-black tracking-wide uppercase transition-all duration-200 flex-1 sm:flex-initial cursor-pointer ${
-              activeTab === 'preferences'
-                ? 'bg-gradient-to-r from-[#5D34F7] to-[#4024DB] text-white shadow-md shadow-[#5D34F7]/15'
-                : 'bg-transparent text-gray-600 hover:bg-slate-50 hover:text-slate-800'
-            }`}
-          >
-            Partner Preferences
-          </button>
+      {!id && (
+        <div className="max-w-7xl mx-auto lg:mx-0 lg:ml-6 xl:ml-10 px-4 mt-6 lg:px-8">
+          <div className="bg-white rounded-3xl p-2 shadow-sm border border-slate-100 flex gap-1 w-full sm:w-fit">
+            <button
+              onClick={() => { setActiveTab('profile'); setIsEditing(false); }}
+              className={`px-6 py-3 rounded-2xl text-xs font-black tracking-wide uppercase transition-all duration-200 flex-1 sm:flex-initial cursor-pointer ${
+                activeTab === 'profile'
+                  ? 'bg-gradient-to-r from-[#5D34F7] to-[#4024DB] text-white shadow-md shadow-[#5D34F7]/15'
+                  : 'bg-transparent text-gray-600 hover:bg-slate-50 hover:text-slate-800'
+              }`}
+            >
+              My Profile
+            </button>
+            <button
+              onClick={() => setActiveTab('preferences')}
+              className={`px-6 py-3 rounded-2xl text-xs font-black tracking-wide uppercase transition-all duration-200 flex-1 sm:flex-initial cursor-pointer ${
+                activeTab === 'preferences'
+                  ? 'bg-gradient-to-r from-[#5D34F7] to-[#4024DB] text-white shadow-md shadow-[#5D34F7]/15'
+                  : 'bg-transparent text-gray-600 hover:bg-slate-50 hover:text-slate-800'
+              }`}
+            >
+              Partner Preferences
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {activeTab === 'profile' ? (
         <>
@@ -1600,36 +1623,40 @@ export default function Profile() {
                         </div>
                       )}
                       {/* Camera overlay for direct upload */}
-                      <div
-                        onClick={() => document.getElementById('avatar-direct-upload').click()}
-                        className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer rounded-2xl"
-                      >
-                        <Camera size={20} className="text-white" />
-                        <span className="text-white text-[9px] font-bold mt-1">Change</span>
-                      </div>
-                      <input
-                        type="file"
-                        id="avatar-direct-upload"
-                        className="hidden"
-                        accept="image/*"
-                        onChange={async (e) => {
-                          const file = e.target.files[0];
-                          if (file) {
-                            setIsSaving(true);
-                            setError('');
-                            try {
-                              const uploadedNames = await uploadFiles([file]);
-                              const newPhotos = [uploadedNames[0], ...photos.filter((_, i) => i !== 0)];
-                              setPhotos(newPhotos);
-                              await savePhotosDirectly(newPhotos);
-                            } catch (err) {
-                              setError(err.response?.data?.message || err.message || 'Failed to upload avatar.');
-                            } finally {
-                              setIsSaving(false);
-                            }
-                          }
-                        }}
-                      />
+                      {!id && (
+                        <>
+                          <div
+                            onClick={() => document.getElementById('avatar-direct-upload').click()}
+                            className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer rounded-2xl"
+                          >
+                            <Camera size={20} className="text-white" />
+                            <span className="text-white text-[9px] font-bold mt-1">Change</span>
+                          </div>
+                          <input
+                            type="file"
+                            id="avatar-direct-upload"
+                            className="hidden"
+                            accept="image/*"
+                            onChange={async (e) => {
+                              const file = e.target.files[0];
+                              if (file) {
+                                setIsSaving(true);
+                                setError('');
+                                try {
+                                  const uploadedNames = await uploadFiles([file]);
+                                  const newPhotos = [uploadedNames[0], ...photos.filter((_, i) => i !== 0)];
+                                  setPhotos(newPhotos);
+                                  await savePhotosDirectly(newPhotos);
+                                } catch (err) {
+                                  setError(err.response?.data?.message || err.message || 'Failed to upload avatar.');
+                                } finally {
+                                  setIsSaving(false);
+                                }
+                              }
+                            }}
+                          />
+                        </>
+                      )}
                     </div>
                     <div>
                       <h2 className="text-xl font-bold text-gray-900 flex items-center gap-1.5">
@@ -1652,7 +1679,7 @@ export default function Profile() {
                             </span>
                           )}
                         </div>
-                        {!profile?.premiumMembership?.isPremium && (
+                        {!id && !profile?.premiumMembership?.isPremium && (
                           <button
                             onClick={() => navigate('/plans')}
                             className="flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg text-xs font-extrabold hover:opacity-95 shadow-sm transition cursor-pointer active:scale-95 border-0"
@@ -1670,39 +1697,43 @@ export default function Profile() {
                       <label className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
                         <Camera size={18} className="text-[#5D34F7]" /> Profile Photos
                       </label>
-                      {/* Always-visible Add Photo button */}
-                      <button
-                        type="button"
-                        onClick={() => document.getElementById('gallery-direct-upload').click()}
-                        disabled={isSaving}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5D34F7]/10 text-[#5D34F7] rounded-lg text-xs font-bold hover:bg-[#5D34F7]/20 transition cursor-pointer disabled:opacity-50 active:scale-95"
-                      >
-                        <Plus size={13} />
-                        {isSaving ? 'Saving...' : 'Add Photo'}
-                      </button>
-                      <input
-                        type="file"
-                        id="gallery-direct-upload"
-                        className="hidden"
-                        accept="image/*"
-                        multiple
-                        onChange={async (e) => {
-                          const files = Array.from(e.target.files);
-                          if (files.length === 0) return;
-                          setIsSaving(true);
-                          setError('');
-                          try {
-                            const uploadedNames = await uploadFiles(files);
-                            const newPhotos = [...photos, ...uploadedNames];
-                            setPhotos(newPhotos);
-                            await savePhotosDirectly(newPhotos);
-                          } catch (err) {
-                            setError(err.response?.data?.message || err.message || 'Failed to upload images.');
-                          } finally {
-                            setIsSaving(false);
-                          }
-                        }}
-                      />
+                      {/* Always-visible Add Photo button for own profile */}
+                      {!id && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById('gallery-direct-upload').click()}
+                            disabled={isSaving}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5D34F7]/10 text-[#5D34F7] rounded-lg text-xs font-bold hover:bg-[#5D34F7]/20 transition cursor-pointer disabled:opacity-50 active:scale-95"
+                          >
+                            <Plus size={13} />
+                            {isSaving ? 'Saving...' : 'Add Photo'}
+                          </button>
+                          <input
+                            type="file"
+                            id="gallery-direct-upload"
+                            className="hidden"
+                            accept="image/*"
+                            multiple
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files);
+                              if (files.length === 0) return;
+                              setIsSaving(true);
+                              setError('');
+                              try {
+                                const uploadedNames = await uploadFiles(files);
+                                const newPhotos = [...photos, ...uploadedNames];
+                                setPhotos(newPhotos);
+                                await savePhotosDirectly(newPhotos);
+                              } catch (err) {
+                                setError(err.response?.data?.message || err.message || 'Failed to upload images.');
+                              } finally {
+                                setIsSaving(false);
+                              }
+                            }}
+                          />
+                        </>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap gap-2.5">
@@ -1753,9 +1784,11 @@ export default function Profile() {
                     <label className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
                       <Heart size={18} className="text-[#5D34F7]" /> About Me
                     </label>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('basic'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100" title="Edit About Me">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('basic'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100" title="Edit About Me">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </div>
                   <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">
                     {p.bio || 'Provide a description to tell others about yourself.'}
@@ -1782,9 +1815,11 @@ export default function Profile() {
                       </svg>
                       <span>Personal Details</span>
                     </div>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('basic'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Personal Details">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('basic'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Personal Details">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </h3>
                   <div className="space-y-3">
                     <ProfileItem icon={<User size={16} />} label="Full Name" value={p.name} />
@@ -1812,9 +1847,11 @@ export default function Profile() {
                       </svg>
                       <span>Religion & Community</span>
                     </div>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('religion'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Religion & Community">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('religion'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Religion & Community">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </h3>
                   <div className="space-y-3">
                     <ProfileItem icon={<Landmark size={16} />} label="Religion" value={p.religion} />
@@ -1839,9 +1876,11 @@ export default function Profile() {
                       </svg>
                       <span>Location</span>
                     </div>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('location'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Location">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('location'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Location">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </h3>
                   <div className="space-y-3">
                     <ProfileItem icon={<MapPin size={16} />} label="City" value={p.city} />
@@ -1854,7 +1893,7 @@ export default function Profile() {
                 <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
                   <h3 className="text-sm font-extrabold text-slate-800 border-b border-slate-100 pb-3.5 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2050/svg">
+                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12 3L2 8L12 13L22 8L12 3Z" fill="url(#edu_grad)" />
                         <path d="M5 11.5V17C5 18.5 8 20 12 20C16 20 19 18.5 19 17V11.5" stroke="url(#edu_grad)" strokeWidth="2.5" strokeLinecap="round" />
                         <defs>
@@ -1866,9 +1905,11 @@ export default function Profile() {
                       </svg>
                       <span>Education & Career</span>
                     </div>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('education'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Education & Career">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('education'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Education & Career">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </h3>
                   <div className="space-y-3">
                     <ProfileItem icon={<GraduationCap size={16} />} label="Highest Qualification" value={p.education} />
@@ -1899,9 +1940,11 @@ export default function Profile() {
                       </svg>
                       <span>Hobbies & Interests</span>
                     </div>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('hobbies'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Hobbies">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('hobbies'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Hobbies">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {p.hobbies && p.hobbies.length > 0 ? (
@@ -1936,9 +1979,11 @@ export default function Profile() {
                       </svg>
                       <span>Family Details</span>
                     </div>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('family'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Family Details">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('family'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Family Details">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </h3>
                   <div className="space-y-3">
                     <ProfileItem icon={<User size={16} />} label="Mother's Status" value={p.motherStatus} />
@@ -1966,9 +2011,11 @@ export default function Profile() {
                       </svg>
                       <span>Astrology Details</span>
                     </div>
-                    <button onClick={() => { setIsEditing(true); setActiveEditCategory('astrology'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Astrology">
-                      <Edit2 size={16} />
-                    </button>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('astrology'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Astrology">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
                   </h3>
                   <div className="space-y-3">
                     <ProfileItem icon={<Activity size={16} />} label="Time of Birth" value={p.astrology?.timeOfBirth} />

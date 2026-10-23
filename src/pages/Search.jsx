@@ -4,11 +4,12 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faUser, faHeart, faSpinner, faEye, faCheck,
   faMapMarkerAlt, faBriefcase, faChevronDown, faChevronUp, faGraduationCap,
-  faCalendarAlt, faRulerVertical, faSearch, faCommentDots
+  faCalendarAlt, faRulerVertical, faSearch, faCommentDots, faPhone
 } from '@fortawesome/free-solid-svg-icons';
 import api, { getPhotoUrl } from '../api/axios';
 import loadingImg from '../assets/loading.png';
 import CallModal from '../components/CallModal';
+import MessageSentModal from '../components/MessageSentModal';
 import ContactInfoCard from '../components/ContactInfoCard';
 import { getCachedUnlockedContacts, syncContactedProfiles } from '../utils/contactManager';
 
@@ -24,6 +25,7 @@ export default function Search() {
   const [previewMatch, setPreviewMatch] = useState(null);
   const [activePreviewImage, setActivePreviewImage] = useState(null);
   const [callModalData, setCallModalData] = useState({ isOpen: false, phone: '', name: '', photo: '' });
+  const [messageSentModal, setMessageSentModal] = useState({ isOpen: false, user: null });
   const [unlockedContacts, setUnlockedContacts] = useState(getCachedUnlockedContacts());
   const navigate = useNavigate();
 
@@ -83,6 +85,10 @@ export default function Search() {
     try {
       await api.post('/users/interests', { receiverId });
       setSentInterests(prev => ({ ...prev, [receiverId]: true }));
+      const targetMatch = searchResults.find(m => (m._id || m.id) === receiverId) || previewMatch;
+      if (targetMatch) {
+        setMessageSentModal({ isOpen: true, user: targetMatch });
+      }
     } catch (err) {
       console.error('Error sending interest:', err);
     } finally {
@@ -335,9 +341,39 @@ export default function Search() {
                             Accept Interest
                           </button>
                         ) : (isSent || (match.interestStatus === 'pending' && match.interestSender === profile?._id)) ? (
-                          <div className="w-full py-3 bg-emerald-50 text-emerald-700 rounded-2xl font-black text-center text-xs flex items-center justify-center gap-1.5 border border-emerald-150 shadow-inner">
-                            <FontAwesomeIcon icon={faCheck} className="text-sm" />
-                            Interest Sent
+                          <div className="space-y-1.5">
+                            <div className="w-full py-1.5 bg-emerald-50 text-emerald-700 rounded-xl font-black text-center text-xs flex items-center justify-center gap-1.5 border border-emerald-150 shadow-inner">
+                              <FontAwesomeIcon icon={faCheck} className="text-xs" />
+                              <span>Interest Sent</span>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-100 rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-1.5">
+                              <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Next Step:</span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => navigate('/messages')}
+                                  className="px-2.5 py-1 bg-[#5D34F7] hover:bg-[#4024DB] text-white font-bold text-[11px] rounded-lg transition flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                                  title="Chat with match"
+                                >
+                                  <FontAwesomeIcon icon={faCommentDots} className="text-[10px]" />
+                                  <span>Chat</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setCallModalData({
+                                      isOpen: true,
+                                      phone: match.profile?.phone || match.phone || 'Contact Phone Unspecified',
+                                      name: match.profile?.name || match.email || 'Matrimony Member',
+                                      photo: match.profile?.photos?.[0] || null
+                                    });
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg transition flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                                  title="Call match"
+                                >
+                                  <FontAwesomeIcon icon={faPhone} className="text-[10px]" />
+                                  <span>Call</span>
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         ) : (
                           <button
@@ -497,9 +533,37 @@ export default function Search() {
 
                   <div className="flex gap-4">
                     {isSent ? (
-                      <div className="w-full py-3.5 bg-emerald-50 text-emerald-700 rounded-2xl font-black text-center text-sm flex items-center justify-center gap-1.5 border border-emerald-150 shadow-inner">
-                        <FontAwesomeIcon icon={faCheck} className="text-base" />
-                        Interest Sent Successfully
+                      <div className="space-y-2.5 w-full">
+                        <div className="w-full py-2.5 bg-emerald-50 text-emerald-700 rounded-2xl font-black text-center text-xs flex items-center justify-center gap-1.5 border border-emerald-150 shadow-inner">
+                          <FontAwesomeIcon icon={faCheck} className="text-sm" />
+                          <span>Interest Sent Successfully</span>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-3 flex items-center justify-between gap-3">
+                          <span className="text-xs font-black text-slate-600 uppercase tracking-wider">Next Step:</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => navigate('/messages')}
+                              className="px-4 py-2 bg-[#5D34F7] hover:bg-[#4024DB] text-white font-black text-xs rounded-xl transition flex items-center gap-1.5 shadow-md shadow-[#5D34F7]/20 cursor-pointer active:scale-95"
+                            >
+                              <FontAwesomeIcon icon={faCommentDots} />
+                              <span>Chat Now</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setCallModalData({
+                                  isOpen: true,
+                                  phone: previewMatch.profile?.phone || previewMatch.phone || 'Contact Phone Unspecified',
+                                  name: previewMatch.profile?.name || previewMatch.email || 'Matrimony Member',
+                                  photo: previewMatch.profile?.photos?.[0] || null
+                                });
+                              }}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition flex items-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer active:scale-95"
+                            >
+                              <FontAwesomeIcon icon={faPhone} />
+                              <span>Call</span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <button
@@ -532,6 +596,29 @@ export default function Search() {
         phone={callModalData.phone}
         name={callModalData.name}
         photo={callModalData.photo}
+      />
+
+      {/* Message Sent Next Step Modal */}
+      <MessageSentModal
+        isOpen={messageSentModal.isOpen}
+        onClose={() => setMessageSentModal({ isOpen: false, user: null })}
+        user={messageSentModal.user}
+        onChat={() => {
+          setMessageSentModal({ isOpen: false, user: null });
+          navigate('/messages');
+        }}
+        onCall={() => {
+          const u = messageSentModal.user;
+          setMessageSentModal({ isOpen: false, user: null });
+          if (u) {
+            setCallModalData({
+              isOpen: true,
+              phone: u.profile?.phone || u.phone || 'Contact Phone Unspecified',
+              name: u.profile?.name || u.name || u.email || 'Matrimony Member',
+              photo: u.profile?.photos?.[0] || u.photos?.[0] || null
+            });
+          }
+        }}
       />
 
     </div>

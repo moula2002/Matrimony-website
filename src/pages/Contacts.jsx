@@ -246,21 +246,22 @@ export default function Contacts() {
                     </div>
                   </div>
 
-                  {/* Actions Row */}
+                  {/* Actions Row - Swapped Chat (first) and Call (second) */}
                   <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
                     <button
-                      onClick={() => handleCall(contact)}
-                      className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-95"
+                      onClick={() => navigate('/messages')}
+                      className="flex-1 py-2.5 bg-[#5D34F7] hover:bg-[#4024DB] text-white font-black rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-95"
                     >
-                      <FontAwesomeIcon icon={faPhone} className="text-xs" />
-                      <span>Call Now</span>
+                      <FontAwesomeIcon icon={faComments} className="text-xs" />
+                      <span>Chat Now</span>
                     </button>
                     <button
-                      onClick={() => navigate('/messages')}
-                      className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer active:scale-95"
-                      title="Open Chat"
+                      onClick={() => handleCall(contact)}
+                      className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-95"
+                      title="Call Member"
                     >
-                      <FontAwesomeIcon icon={faComments} className="text-sm" />
+                      <FontAwesomeIcon icon={faPhone} className="text-xs" />
+                      <span>Call</span>
                     </button>
                   </div>
                 </div>

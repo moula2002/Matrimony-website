@@ -10,7 +10,8 @@ import {
   faCalendarTimes,
   faTimes,
   faExclamationCircle,
-  faCheckCircle
+  faCheckCircle,
+  faCommentDots
 } from '@fortawesome/free-solid-svg-icons';
 import api from '../api/axios';
 import {
@@ -248,14 +249,24 @@ export default function ContactInfoCard({
             )}
           </button>
         ) : (
-          <button
-            onClick={handleCallClick}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0"
-            title="Call this member"
-          >
-            <FontAwesomeIcon icon={faPhone} className="text-xs" />
-            <span>Call</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => navigate('/messages')}
+              className="px-3 py-2 bg-[#5D34F7] hover:bg-[#4024DB] text-white font-black text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0"
+              title="Chat with member"
+            >
+              <FontAwesomeIcon icon={faCommentDots} className="text-xs" />
+              <span>Chat</span>
+            </button>
+            <button
+              onClick={handleCallClick}
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0"
+              title="Call this member"
+            >
+              <FontAwesomeIcon icon={faPhone} className="text-xs" />
+              <span>Call</span>
+            </button>
+          </div>
         )}
       </div>
 

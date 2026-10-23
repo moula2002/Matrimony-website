@@ -4,11 +4,13 @@ import api, { getPhotoUrl } from '../api/axios';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faSmile, faSearch, faUser, faInfoCircle, faArrowLeft, faSpinner,
-  faPhone, faVideo, faHeart, faChevronDown, faEdit, faMicrophone, faImage,
-  faMapMarkerAlt, faCopy, faCheck
+  faPhone, faHeart, faChevronDown, faEdit, faMicrophone, faImage,
+  faMapMarkerAlt, faCopy, faCheck, faPlus, faCamera, faFileAlt, faFilePdf,
+  faDownload, faTimes
 } from '@fortawesome/free-solid-svg-icons';
 import loadingImg from '../assets/loading.png';
 import CallModal from '../components/CallModal';
+import { GIF_CATEGORIES, GIF_COLLECTION } from '../data/gifs';
 
 const EMOJIS = ['😀', '😂', '😍', '👍', '🔥', '❤️', '🎉', '🙌', '💡', '💬', '✨', '👏', '🥳', '😎', '💯'];
 
@@ -31,13 +33,21 @@ export default function Messages() {
   const navigate = useNavigate();
   const isPremium = currentUserProfile?.premiumMembership?.isPremium || false;
 
-  // Emoji Picker & Recording & Calling Real States
+  // Emoji Picker, GIF Picker, Attachment Menu & Recording States
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [selectedGifCategory, setSelectedGifCategory] = useState('all');
+  const [gifSearchQuery, setGifSearchQuery] = useState('');
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordTime, setRecordTime] = useState(0);
-  const [activeCall, setActiveCall] = useState(null); // 'voice' | 'video' | null
-  const [showAppDropdown, setShowAppDropdown] = useState(false);
-  const appDropdownRef = useRef(null);
+  const [activeCall, setActiveCall] = useState(null); // 'voice' | null
+
+  const attachmentMenuRef = useRef(null);
+  const gifPickerRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const photoInputRef = useRef(null);
+  const docInputRef = useRef(null);
 
   const handleCopyUid = (uid, e) => {
     e.stopPropagation();
@@ -48,8 +58,11 @@ export default function Messages() {
 
   useEffect(() => {
     function handleClickOutside(event) {
-      if (appDropdownRef.current && !appDropdownRef.current.contains(event.target)) {
-        setShowAppDropdown(false);
+      if (attachmentMenuRef.current && !attachmentMenuRef.current.contains(event.target)) {
+        setShowAttachmentMenu(false);
+      }
+      if (gifPickerRef.current && !gifPickerRef.current.contains(event.target)) {
+        setShowGifPicker(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -433,14 +446,16 @@ export default function Messages() {
     }
   };
 
-  // Send media file change trigger
-  const handleFileChange = async (e) => {
-    const file = e.target.files[0];
+  // Send attachment (camera, photo, or document) - strictly no video
+  const handleAttachmentUpload = async (file, type) => {
     if (!file || !activeContact || sending) return;
 
-    setSending(true);
-    const isVideo = file.type.startsWith('video/');
+    if (file.type && file.type.startsWith('video/')) {
+      alert('Video uploads are disabled in chat.');
+      return;
+    }
 
+    setSending(true);
     try {
       const formData = new FormData();
       formData.append('media', file);
@@ -451,20 +466,57 @@ export default function Messages() {
       });
       const mediaUrl = uploadRes.data.urls[0];
       
+      const isDoc = type === 'document' || 
+        file.name.endsWith('.pdf') || 
+        file.name.endsWith('.doc') || 
+        file.name.endsWith('.docx') || 
+        file.name.endsWith('.txt');
+      
       const res = await api.post(`/users/chat/${activeContact._id}`, {
-        text: isVideo ? '[Video Message]' : '[Image Message]',
-        messageType: isVideo ? 'video' : 'image',
+        text: isDoc ? file.name : (type === 'camera' ? '[Camera Photo]' : '[Image Message]'),
+        messageType: 'image',
         mediaUrl: mediaUrl
       });
       
       const newMsg = res.data;
       setMessages((prev) => [...prev, newMsg]);
     } catch (err) {
-      console.error('Error sending media message:', err);
+      console.error('Error sending attachment:', err);
+      alert('Failed to send attachment. Please try again.');
     } finally {
       setSending(false);
     }
   };
+
+  // Send selected GIF
+  const handleSendGif = async (gif) => {
+    if (!activeContact || sending) return;
+    setShowGifPicker(false);
+    setSending(true);
+
+    try {
+      const res = await api.post(`/users/chat/${activeContact._id}`, {
+        text: '[GIF]',
+        messageType: 'gif',
+        mediaUrl: gif.url
+      });
+      const newMsg = res.data;
+      setMessages((prev) => [...prev, newMsg]);
+    } catch (err) {
+      console.error('Error sending GIF:', err);
+      alert('Failed to send GIF. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const filteredGifs = GIF_COLLECTION.filter(gif => {
+    const matchesCat = selectedGifCategory === 'all' || gif.category === selectedGifCategory;
+    const matchesSearch = !gifSearchQuery.trim() || 
+      gif.title.toLowerCase().includes(gifSearchQuery.toLowerCase()) ||
+      gif.tags.some(tag => tag.toLowerCase().includes(gifSearchQuery.toLowerCase()));
+    return matchesCat && matchesSearch;
+  });
 
   const handleDoubleClickMessage = (msgId) => {
     setLikedMessages((prev) => ({
@@ -667,7 +719,7 @@ const displayUsername = currentUserProfile?.profile?.name
                   </div>
                 </div>
 
-                <div ref={appDropdownRef} className="flex items-center gap-4 text-slate-700 relative">
+                <div className="flex items-center gap-4 text-slate-700 relative">
                   <button 
                     onClick={() => {
                       if (!isPremium) {
@@ -693,24 +745,6 @@ const displayUsername = currentUserProfile?.profile?.name
                     <FontAwesomeIcon icon={faPhone} className="w-4.5 h-4.5" />
                   </button>
                   <button 
-                    onClick={() => {
-                      if (!isPremium) {
-                        navigate('/plans');
-                        return;
-                      }
-                      if (activeContact.settings?.allowVoiceAndVideoCalls === false) {
-                        alert('This member has disabled incoming calls.');
-                        return;
-                      }
-                      setShowAppDropdown(prev => !prev);
-                    }} 
-                    className="hover:text-slate-955 transition p-2 hover:bg-slate-100 rounded-full cursor-pointer relative"
-                    title={isPremium ? "Video Call" : "Upgrade for Video Call"}
-                  >
-                    {!isPremium && <span className="absolute top-0 right-0 text-[9px]">🔒</span>}
-                    <FontAwesomeIcon icon={faVideo} className="w-4.5 h-4.5" />
-                  </button>
-                  <button 
                     onClick={async () => {
                       if (window.confirm("Are you sure you want to block this user?")) {
                         try {
@@ -729,14 +763,6 @@ const displayUsername = currentUserProfile?.profile?.name
                   >
                     Block
                   </button>
-
-                  {showAppDropdown && (
-                    <div className="absolute right-0 top-12 bg-white border border-slate-200 rounded-2xl py-3.5 px-5 shadow-xl z-50 min-w-[200px] text-center border-slate-100/80 animate-in fade-in zoom-in-95 duration-100">
-                      <span className="text-xs font-black text-[#5D34F7] uppercase tracking-wider block leading-relaxed">
-                        Get the Familiess<br />Matrimony app
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -751,8 +777,11 @@ const displayUsername = currentUserProfile?.profile?.name
                     const isMe = msg.sender === activeContact._id ? false : true;
                     const isPrevSame = index > 0 && messages[index - 1].sender === msg.sender;
                     
-                    const isImage = msg.messageType === 'image' || (msg.mediaUrl && msg.mediaUrl.startsWith('data:image'));
-                    const isVideo = msg.messageType === 'video' || (msg.mediaUrl && msg.mediaUrl.startsWith('data:video'));
+                    const isGif = msg.messageType === 'gif' || (msg.mediaUrl && (msg.mediaUrl.endsWith('.gif') || msg.mediaUrl.includes('giphy.gif') || msg.text === '[GIF]'));
+                    const isDoc = (msg.mediaUrl && (msg.mediaUrl.endsWith('.pdf') || msg.mediaUrl.endsWith('.doc') || msg.mediaUrl.endsWith('.docx') || msg.mediaUrl.endsWith('.txt'))) || 
+                      (msg.text && (msg.text.endsWith('.pdf') || msg.text.endsWith('.doc') || msg.text.endsWith('.docx') || msg.text.endsWith('.txt')));
+                    const isImage = !isGif && !isDoc && (msg.messageType === 'image' || (msg.mediaUrl && (msg.mediaUrl.startsWith('data:image') || msg.mediaUrl.match(/\.(jpeg|jpg|png|webp)/i))));
+                    const isVideo = msg.messageType === 'video' || (msg.mediaUrl && (msg.mediaUrl.startsWith('data:video') || msg.mediaUrl.endsWith('.mp4')));
                     const isVoice = msg.messageType === 'sticker' || msg.text === '[Voice Message]';
 
                     return (
@@ -760,16 +789,50 @@ const displayUsername = currentUserProfile?.profile?.name
                         key={msg._id} 
                         className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isPrevSame ? 'mt-1' : 'mt-4'} animate-in fade-in zoom-in-95 duration-150`}
                       >
-                        <div className="relative group max-w-[70%]">
+                        <div className="relative group max-w-[75%] sm:max-w-[70%]">
                           <div 
                             onDoubleClick={() => handleDoubleClickMessage(msg._id)}
                             className={`rounded-2xl text-[14.5px] leading-relaxed select-none cursor-pointer shadow-sm ${
                               isVoice ? 'bg-[#EFEFEF] text-slate-800 border' :
+                              isDoc ? (isMe ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-2 rounded-tr-sm' : 'bg-[#EFEFEF] text-slate-900 p-2 rounded-tl-sm') :
+                              isGif ? 'bg-transparent p-0' :
                               isMe 
                                 ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white p-3 px-4.5 rounded-tr-sm' 
                                 : 'bg-[#EFEFEF] text-slate-900 p-3 px-4.5 rounded-tl-sm'
                             }`}
                           >
+                            {isGif && (
+                              <div className="rounded-2xl overflow-hidden border border-slate-200/60 shadow-md max-w-[260px] sm:max-w-[280px] bg-slate-100">
+                                <img 
+                                  src={getPhotoUrl(msg.mediaUrl)} 
+                                  alt="GIF" 
+                                  className="w-full h-auto object-cover max-h-[240px] rounded-2xl" 
+                                />
+                              </div>
+                            )}
+
+                            {isDoc && (
+                              <div className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200/80 shadow-xs max-w-[280px] text-slate-800">
+                                <div className="w-10 h-10 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0">
+                                  <FontAwesomeIcon icon={faFilePdf} className="text-xl" />
+                                </div>
+                                <div className="flex-1 min-w-0 text-left">
+                                  <p className="text-xs font-bold text-slate-800 truncate">{msg.text || 'Document'}</p>
+                                  <span className="text-[10px] text-slate-400 font-semibold uppercase">Document File</span>
+                                </div>
+                                <a 
+                                  href={getPhotoUrl(msg.mediaUrl)} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  download
+                                  className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-[#5D34F7] hover:text-white text-slate-600 flex items-center justify-center transition shrink-0"
+                                  title="View / Download Document"
+                                >
+                                  <FontAwesomeIcon icon={faDownload} className="text-xs" />
+                                </a>
+                              </div>
+                            )}
+
                             {isImage && (
                               <div className="rounded-lg overflow-hidden border border-slate-200/50 shadow-inner max-w-[260px] max-h-[300px]">
                                 <img src={getPhotoUrl(msg.mediaUrl)} alt="Attachment" className="w-full h-full object-cover" />
@@ -800,7 +863,7 @@ const displayUsername = currentUserProfile?.profile?.name
                               </div>
                             )}
 
-                            {!isImage && !isVideo && !isVoice && (
+                            {!isImage && !isVideo && !isVoice && !isGif && !isDoc && (
                               <p className="break-words">{msg.text}</p>
                             )}
                             
@@ -836,7 +899,7 @@ const displayUsername = currentUserProfile?.profile?.name
               <div className="p-4 bg-white border-t border-slate-200 shrink-0 relative">
                 {/* Emoji Picker Popover */}
                 {showEmojiPicker && (
-                  <div className="absolute bottom-16 left-4 bg-white border border-slate-200 rounded-xl p-3 shadow-xl grid grid-cols-5 gap-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute bottom-16 left-4 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl grid grid-cols-5 gap-2 z-50 animate-in fade-in zoom-in-95 duration-100">
                     {EMOJIS.map((emoji) => (
                       <button 
                         key={emoji}
@@ -853,16 +916,126 @@ const displayUsername = currentUserProfile?.profile?.name
                   </div>
                 )}
 
-                {/* Hidden File Upload Input */}
+                {/* Rich GIF Picker Drawer/Modal */}
+                {showGifPicker && (
+                  <div 
+                    ref={gifPickerRef}
+                    className="absolute bottom-16 right-2 sm:right-6 w-[320px] sm:w-[420px] max-w-[calc(100vw-1.5rem)] bg-white border border-slate-200 rounded-3xl shadow-2xl z-50 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+                  >
+                    {/* Header & Search */}
+                    <div className="p-3.5 border-b border-slate-100 bg-slate-50/70 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 bg-gradient-to-r from-[#5D34F7] to-indigo-600 text-white rounded-md text-[10px] font-black tracking-wider uppercase shadow-xs">
+                            GIF
+                          </span>
+                          <h4 className="text-xs font-black text-slate-800 tracking-tight">Choose a GIF</h4>
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => setShowGifPicker(false)}
+                          className="w-6 h-6 rounded-full hover:bg-slate-200/80 text-slate-400 hover:text-slate-700 flex items-center justify-center text-xs transition cursor-pointer"
+                        >
+                          <FontAwesomeIcon icon={faTimes} />
+                        </button>
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="relative">
+                        <input 
+                          type="text"
+                          placeholder="Search GIFs (e.g. love, congrats, namaste)..."
+                          value={gifSearchQuery}
+                          onChange={(e) => setGifSearchQuery(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 pl-8 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#5D34F7] transition"
+                        />
+                        <FontAwesomeIcon icon={faSearch} className="absolute left-2.5 top-2.5 text-slate-400 text-xs" />
+                      </div>
+
+                      {/* Category Pills */}
+                      <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                        {GIF_CATEGORIES.map(cat => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setSelectedGifCategory(cat.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition cursor-pointer ${
+                              selectedGifCategory === cat.id 
+                                ? 'bg-[#5D34F7] text-white shadow-xs' 
+                                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/70'
+                            }`}
+                          >
+                            {cat.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* GIF Grid */}
+                    <div className="p-3 overflow-y-auto max-h-[300px] grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50/40 custom-scrollbar">
+                      {filteredGifs.length === 0 ? (
+                        <div className="col-span-full py-10 text-center text-xs font-bold text-slate-400">
+                          No GIFs found matching "{gifSearchQuery}"
+                        </div>
+                      ) : (
+                        filteredGifs.map(gif => (
+                          <button
+                            key={gif.id}
+                            type="button"
+                            onClick={() => handleSendGif(gif)}
+                            className="group relative rounded-xl overflow-hidden aspect-video bg-slate-100 hover:ring-2 hover:ring-[#5D34F7] transition-all cursor-pointer shadow-xs hover:scale-[1.02]"
+                            title={gif.title}
+                          >
+                            <img 
+                              src={gif.url} 
+                              alt={gif.title} 
+                              className="w-full h-full object-cover"
+                              loading="lazy" 
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-1.5">
+                              <span className="text-[10px] font-bold text-white truncate drop-shadow">{gif.title}</span>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Hidden File Upload Inputs for Cam, Docs, and Images (Strictly NO video) */}
                 <input 
                   type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleFileChange} 
-                  accept="image/*,video/*" 
+                  ref={cameraInputRef} 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleAttachmentUpload(e.target.files[0], 'camera');
+                    e.target.value = '';
+                  }} 
+                  accept="image/*" 
+                  capture="environment"
+                  className="hidden" 
+                />
+                <input 
+                  type="file" 
+                  ref={photoInputRef} 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleAttachmentUpload(e.target.files[0], 'image');
+                    e.target.value = '';
+                  }} 
+                  accept="image/*" 
+                  className="hidden" 
+                />
+                <input 
+                  type="file" 
+                  ref={docInputRef} 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleAttachmentUpload(e.target.files[0], 'document');
+                    e.target.value = '';
+                  }} 
+                  accept=".pdf,.doc,.docx,.txt" 
                   className="hidden" 
                 />
 
-                <form onSubmit={handleSendMessage} className="relative flex items-center border border-slate-200 rounded-full px-4 py-2.5 bg-white shadow-sm focus-within:border-slate-400 transition-all">
+                <form onSubmit={handleSendMessage} className="relative flex items-center border border-slate-200 rounded-full px-3 sm:px-4 py-2 bg-white shadow-sm focus-within:border-slate-400 transition-all">
                   
                   {isRecording ? (
                     // Recording voice message status bar
@@ -891,13 +1064,86 @@ const displayUsername = currentUserProfile?.profile?.name
                   ) : (
                     // Default input field controls
                     <>
+                      {/* Plus Attachment Menu Button */}
+                      <div ref={attachmentMenuRef} className="relative mr-1.5">
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            setShowAttachmentMenu(prev => !prev);
+                            setShowEmojiPicker(false);
+                            setShowGifPicker(false);
+                          }}
+                          className={`w-7 h-7 rounded-full flex items-center justify-center transition cursor-pointer ${
+                            showAttachmentMenu ? 'bg-[#5D34F7] text-white rotate-45' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                          }`}
+                          title="Attach Camera, Documents or Images"
+                        >
+                          <FontAwesomeIcon icon={faPlus} className="text-xs transition-transform duration-150" />
+                        </button>
+
+                        {/* Attachment Dropdown */}
+                        {showAttachmentMenu && (
+                          <div className="absolute bottom-11 left-0 bg-white border border-slate-200 rounded-2xl p-1.5 shadow-xl z-50 min-w-[170px] space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                            <button 
+                              type="button" 
+                              onClick={() => {
+                                setShowAttachmentMenu(false);
+                                cameraInputRef.current?.click();
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-indigo-50 hover:text-[#5D34F7] rounded-xl transition cursor-pointer text-left"
+                            >
+                              <span className="w-6 h-6 rounded-lg bg-indigo-100 text-[#5D34F7] flex items-center justify-center shrink-0">
+                                <FontAwesomeIcon icon={faCamera} className="text-[11px]" />
+                              </span>
+                              <span>Camera</span>
+                            </button>
+
+                            <button 
+                              type="button" 
+                              onClick={() => {
+                                setShowAttachmentMenu(false);
+                                photoInputRef.current?.click();
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-pink-50 hover:text-pink-600 rounded-xl transition cursor-pointer text-left"
+                            >
+                              <span className="w-6 h-6 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center shrink-0">
+                                <FontAwesomeIcon icon={faImage} className="text-[11px]" />
+                              </span>
+                              <span>Images</span>
+                            </button>
+
+                            <button 
+                              type="button" 
+                              onClick={() => {
+                                setShowAttachmentMenu(false);
+                                docInputRef.current?.click();
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 rounded-xl transition cursor-pointer text-left"
+                            >
+                              <span className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                                <FontAwesomeIcon icon={faFileAlt} className="text-[11px]" />
+                              </span>
+                              <span>Documents</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Emoji Picker Button */}
                       <button 
                         type="button" 
-                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                        className="text-slate-600 hover:text-slate-900 mr-3 transition cursor-pointer"
+                        onClick={() => {
+                          setShowEmojiPicker(!showEmojiPicker);
+                          setShowGifPicker(false);
+                          setShowAttachmentMenu(false);
+                        }}
+                        className="text-slate-500 hover:text-slate-800 mr-2 transition cursor-pointer"
+                        title="Add Emoji"
                       >
-                        <FontAwesomeIcon icon={faSmile} className="w-5 h-5" />
+                        <FontAwesomeIcon icon={faSmile} className="w-4.5 h-4.5" />
                       </button>
+
+                      {/* Text Input */}
                       <input
                         type="text"
                         placeholder="Message..."
@@ -905,6 +1151,7 @@ const displayUsername = currentUserProfile?.profile?.name
                         onChange={(e) => setInputText(e.target.value)}
                         className="flex-1 bg-transparent border-none text-sm text-slate-850 placeholder-slate-400 focus:outline-none focus:ring-0 mr-2"
                       />
+
                       {inputText.trim() ? (
                         <button 
                           type="submit"
@@ -914,27 +1161,43 @@ const displayUsername = currentUserProfile?.profile?.name
                           {sending ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Send'}
                         </button>
                       ) : (
-                        <div className="flex items-center gap-3.5 text-slate-600 shrink-0 mr-1">
+                        <div className="flex items-center gap-2.5 sm:gap-3 text-slate-600 shrink-0 mr-1">
+                          {/* Dedicated GIF Button */}
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              setShowGifPicker(prev => !prev);
+                              setShowEmojiPicker(false);
+                              setShowAttachmentMenu(false);
+                            }}
+                            className={`px-2 py-0.5 rounded-md text-[11px] font-black uppercase tracking-wider transition cursor-pointer border ${
+                              showGifPicker 
+                                ? 'bg-[#5D34F7] text-white border-[#5D34F7] shadow-xs' 
+                                : 'bg-slate-100 text-slate-700 hover:bg-[#5D34F7] hover:text-white border-slate-200'
+                            }`}
+                            title="Choose and send animated GIFs"
+                          >
+                            GIF
+                          </button>
+
+                          {/* Voice Note Button */}
                           <button 
                             type="button" 
                             onClick={() => setIsRecording(true)}
                             className="hover:text-slate-900 transition cursor-pointer"
+                            title="Record voice message"
                           >
-                            <FontAwesomeIcon icon={faMicrophone} className="w-4.5 h-4.5" />
+                            <FontAwesomeIcon icon={faMicrophone} className="w-4 h-4" />
                           </button>
-                          <button 
-                            type="button" 
-                            onClick={() => fileInputRef.current?.click()}
-                            className="hover:text-slate-900 transition cursor-pointer"
-                          >
-                            <FontAwesomeIcon icon={faImage} className="w-4.5 h-4.5" />
-                          </button>
+
+                          {/* Quick Heart Reaction */}
                           <button 
                             type="button" 
                             onClick={() => setInputText('❤️')}
-                            className="hover:text-slate-950 transition cursor-pointer"
+                            className="hover:text-rose-500 transition cursor-pointer text-slate-500"
+                            title="Send Heart"
                           >
-                            <FontAwesomeIcon icon={faHeart} className="w-4.5 h-4.5" />
+                            <FontAwesomeIcon icon={faHeart} className="w-4 h-4" />
                           </button>
                         </div>
                       )}
