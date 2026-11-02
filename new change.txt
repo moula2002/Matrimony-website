@@ -104,7 +104,6 @@ Todo:
   ✔ if the plan dosent have video calling option block the video call option and also the switch option in the call screen @done(26-08-05 17:39)
   ✔ ignore the picture verification lock on the my profile screen show the image irrespective of the verification status @done(26-08-05 17:39)
   ✔ in the profile the sibblings option is not shown fix @done(26-08-05 12:45)
-
   ✔ TC and Privacy Policy @done(26-08-10 15:05)
   ✔ 10 pictures per account @done(26-08-10 15:05)
   ✔ Edit option for hobbies n interest @done(26-08-11 10:18)

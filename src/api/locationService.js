@@ -55,5 +55,30 @@ export const LocationService = {
         resolve([]);
       }, 500);
     });
+  },
+
+  async getCoordinatesForCity(cityName) {
+    if (!cityName || !cityName.trim()) return null;
+    const key = `coord_${cityName.toLowerCase().trim()}`;
+    if (cache[key]) return cache[key];
+    try {
+      const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName.trim())}&count=1&language=en&format=json`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.results?.[0]) {
+          const coords = {
+            latitude: data.results[0].latitude,
+            longitude: data.results[0].longitude,
+            city: data.results[0].name
+          };
+          cache[key] = coords;
+          return coords;
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching city coordinates:', e);
+    }
+    return null;
   }
 };

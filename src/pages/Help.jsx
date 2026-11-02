@@ -5,6 +5,7 @@ import {
   faChevronUp, faPaperPlane, faSpinner, faCommentAlt
 } from '@fortawesome/free-solid-svg-icons';
 import api from '../api/axios';
+import VipConsultantModal from '../components/VipConsultantModal';
 
 const FAQS = [
   {
@@ -33,6 +34,7 @@ export default function Help() {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [success, setSuccess] = useState('');
+  const [showVipModal, setShowVipModal] = useState(false);
 
   const toggleFaq = (index) => {
     setExpandedFaq(expandedFaq === index ? null : index);
@@ -93,20 +95,48 @@ export default function Help() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-[#5D34F7]/10 text-[#5D34F7] flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                     <FontAwesomeIcon icon={faPhoneAlt} />
                   </div>
                   <div>
-                    <span className="text-slate-450 block font-semibold text-[10px]">Hotline support</span>
-                    <span>+1 (800) 555-0199</span>
+                    <span className="text-slate-450 block font-semibold text-[10px]">Toll-Free Helpline</span>
+                    <a href="tel:18004196000" className="hover:text-[#5D34F7] text-slate-800 font-extrabold">1800-419-6000</a>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                    <span>👑</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-450 block font-semibold text-[10px]">VIP Consultant</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowVipModal(true)}
+                      className="text-[#5D34F7] hover:underline font-extrabold text-left cursor-pointer"
+                    >
+                      Assisted Matchmaking
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-[#5D34F7]/5 to-[#4024DB]/5 border border-[#5D34F7]/10 rounded-3xl p-6 text-xs text-slate-650 font-bold space-y-2">
-              <h4 className="font-black text-slate-800 text-sm">Need Premium Help?</h4>
-              <p className="leading-relaxed">Premium members get dedicated accounts managers to help find matching partners faster and perform verification checks.</p>
+            <div className="bg-gradient-to-br from-amber-500/10 via-purple-500/10 to-indigo-50/40 border border-amber-300/80 rounded-3xl p-6 text-xs text-slate-700 font-bold space-y-3 shadow-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-base">👑</span>
+                <h4 className="font-black text-slate-900 text-sm">VIP Consultant Service</h4>
+              </div>
+              <p className="leading-relaxed font-medium text-slate-600">
+                Get a dedicated relationship manager to handpick verified profiles, coordinate family introductions, and assist with astrology matching.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowVipModal(true)}
+                className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 font-black rounded-xl shadow-xs transition active:scale-95 cursor-pointer text-center"
+              >
+                Talk to VIP Consultant
+              </button>
             </div>
           </div>
 
@@ -198,6 +228,12 @@ export default function Help() {
         </div>
 
       </div>
+
+      {/* VIP Consultant Modal */}
+      <VipConsultantModal
+        isOpen={showVipModal}
+        onClose={() => setShowVipModal(false)}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api, { getPhotoUrl } from '../api/axios';
+import api, { getPhotoUrl, getDefaultAvatar, handleImageError } from '../api/axios';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faEdit,
@@ -15,17 +15,21 @@ import {
   faCamera,
   faGraduationCap,
   faLandmark,
-  faCrown
+  faCrown,
+  faChevronRight,
+  faPhone
 } from '@fortawesome/free-solid-svg-icons';
 import couple1 from '../assets/couple1.png';
 import maleAvatar from '../assets/male_avatar.png';
 import femaleAvatar from '../assets/female_avatar.png';
+import VipConsultantModal from '../components/VipConsultantModal';
 
 export default function Home() {
   const [profile, setProfile] = useState(null);
   const [banners, setBanners] = useState([]);
   const [activeBannerIndex, setActiveBannerIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showVipModal, setShowVipModal] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -78,7 +82,7 @@ export default function Home() {
               tag: 'FEATURED #2',
               title: 'Handpicked and Verified Profiles',
               subtitle: 'Manual document verification protects you from spam.',
-              buttonText: 'Explore Matches',
+              buttonText: 'Send Interests',
               linkUrl: '/preference-matches',
               image: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80'
             },
@@ -230,10 +234,10 @@ export default function Home() {
   return (
     <div className="bg-[#4d25d0] min-h-screen p-4 sm:p-6 lg:p-8 font-sans">
       <div className="max-w-[1400px] mx-auto flex flex-col lg:flex-row gap-6">
-        
+
         {/* LEFT COLUMN: Sidebar Profile & Navigation Cards */}
         <div className="w-full lg:w-[310px] xl:w-[340px] shrink-0 space-y-6">
-          
+
           {/* Card 1: User Profile Card */}
           <div className="bg-white rounded-[28px] p-6 text-center shadow-xl border border-white/20 relative overflow-hidden">
             {loading ? (
@@ -249,6 +253,7 @@ export default function Home() {
                   <img
                     src={userPhoto}
                     alt="Profile"
+                    onError={(e) => handleImageError(e, p.gender)}
                     className="w-full h-full object-cover rounded-full"
                   />
                 </div>
@@ -272,11 +277,10 @@ export default function Home() {
                 <div className="mt-4 flex flex-col items-center gap-2">
                   <button
                     onClick={() => navigate('/plans')}
-                    className={`px-4 py-2 rounded-full font-extrabold text-xs inline-flex items-center gap-1.5 transition cursor-pointer shadow-2xs border ${
-                      isPremium
+                    className={`px-4 py-2 rounded-full font-extrabold text-xs inline-flex items-center gap-1.5 transition cursor-pointer shadow-2xs border ${isPremium
                         ? 'bg-[#f0f2f7] hover:bg-[#e4e8f2] text-slate-700 border-slate-200'
                         : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'
-                    }`}
+                      }`}
                   >
                     <FontAwesomeIcon icon={faCrown} className={isPremium ? 'text-amber-500' : 'text-amber-600'} />
                     <span>
@@ -288,7 +292,7 @@ export default function Home() {
 
                   {profile?.isFeatured && (
                     <span className="px-4 py-1.5 rounded-full font-extrabold text-[10px] inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm border border-amber-600">
-                      ⭐ Featured Profile
+                      ⭐ Highlight My Profile
                     </span>
                   )}
                 </div>
@@ -298,30 +302,38 @@ export default function Home() {
 
           {/* Card 2: Sidebar Links Menu */}
           <div className="bg-white rounded-[28px] p-6 shadow-xl border border-white/20 space-y-4">
-            
-            {/* Edit Profile */}
-            <div
-              onClick={() => navigate('/profile')}
-              className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer text-slate-600 hover:text-[#5227d8] font-semibold text-sm transition"
-            >
-              <FontAwesomeIcon icon={faEdit} className="w-4 h-4 text-slate-400" />
-              <span>Edit profile</span>
-            </div>
 
             {/* Edit Preferences */}
             <div
               onClick={() => navigate('/profile', { state: { tab: 'preferences' } })}
-              className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer text-slate-600 hover:text-[#5227d8] font-semibold text-sm transition"
+              className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer text-slate-600 hover:text-[#5227d8] font-semibold text-sm transition group"
             >
-              <FontAwesomeIcon icon={faSliders} className="w-4 h-4 text-slate-400" />
-              <span>Edit preferences</span>
+              <div className="flex items-center gap-3.5">
+                <FontAwesomeIcon icon={faSliders} className="w-4 h-4 text-slate-400 group-hover:text-[#5227d8] transition-colors" />
+                <span>Edit preferences</span>
+              </div>
+              <FontAwesomeIcon icon={faChevronRight} className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#5227d8] group-hover:translate-x-0.5 transition-transform" />
             </div>
 
             {/* SUPPORT & FEEDBACK Header */}
             <div className="pt-2 pb-1 px-3">
               <p className="text-slate-400 text-[11px] font-extrabold tracking-wider uppercase">
-                SUPPORT & FEEDBACK
+                SUPPORT & SERVICES
               </p>
+            </div>
+
+            {/* VIP Consultant Sidebar Item */}
+            <div
+              onClick={() => setShowVipModal(true)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-transparent hover:bg-amber-100/60 cursor-pointer text-amber-950 font-black text-sm transition group border border-amber-200/80 shadow-2xs"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-base">👑</span>
+                <span className="group-hover:text-amber-800">VIP Consultant</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase shadow-xs">
+                Assisted
+              </span>
             </div>
 
             {/* Settings */}
@@ -351,13 +363,13 @@ export default function Home() {
 
         {/* RIGHT COLUMN: Main Content & Footer */}
         <div className="flex-1 min-w-0 space-y-6">
-          
+
           {/* Card 1: Complete Your Profile */}
           <div className="bg-white rounded-[28px] p-6 sm:p-8 shadow-xl border border-white/20">
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">
               Complete Your Profile
             </h2>
-            
+
             {/* Dynamic Progress Score Bar */}
             <div className="flex flex-wrap items-center gap-3 mt-2 mb-6">
               <span className="text-slate-500 font-semibold text-xs sm:text-sm">
@@ -445,12 +457,22 @@ export default function Home() {
                 <div
                   className={`w-full relative overflow-hidden ${currentBanner.linkUrl ? 'cursor-pointer' : ''}`}
                   onClick={() => {
+                    const title = (currentBanner.title || '').toLowerCase();
+                    const tag = (currentBanner.tag || '').toLowerCase();
+                    if (title.includes('vip') || tag.includes('vip') || tag.includes('consultant')) {
+                      setShowVipModal(true);
+                      return;
+                    }
                     if (currentBanner.linkUrl) {
-                      if (currentBanner.linkUrl.startsWith('http')) {
+                      if (currentBanner.linkUrl.startsWith('tel:')) {
+                        window.location.href = currentBanner.linkUrl;
+                      } else if (currentBanner.linkUrl.startsWith('http')) {
                         window.open(currentBanner.linkUrl, '_blank', 'noopener,noreferrer');
                       } else {
                         navigate(currentBanner.linkUrl);
                       }
+                    } else {
+                      setShowVipModal(true);
                     }
                   }}
                 >
@@ -471,11 +493,10 @@ export default function Home() {
                           e.stopPropagation();
                           setActiveBannerIndex(idx);
                         }}
-                        className={`transition-all duration-300 cursor-pointer border-0 p-0 ${
-                          activeBannerIndex === idx
+                        className={`transition-all duration-300 cursor-pointer border-0 p-0 ${activeBannerIndex === idx
                             ? 'w-7 h-2 rounded-full bg-[#ff4500] shadow-sm'
                             : 'w-2 h-2 rounded-full bg-white/70 hover:bg-white'
-                        }`}
+                          }`}
                         title={`Banner ${idx + 1}`}
                       />
                     ))}
@@ -485,10 +506,49 @@ export default function Home() {
             );
           })()}
 
+          {/* Card: VIP Consultant Feature Spotlight */}
+          <div className="bg-gradient-to-r from-slate-950 via-purple-950 to-slate-900 rounded-[28px] p-6 sm:p-8 text-white relative overflow-hidden shadow-xl border border-amber-400/30">
+            <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              <div className="space-y-2 max-w-xl">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-300 text-xs font-black uppercase tracking-wider shadow-sm">
+                  <FontAwesomeIcon icon={faCrown} className="text-amber-400 text-xs animate-bounce" />
+                  <span>VIP Assisted Matchmaking</span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                  Want a Personal Relationship Manager?
+                </h3>
+                <p className="text-slate-300 text-xs sm:text-sm font-medium leading-relaxed">
+                  Let our certified senior consultants personally shortlist 100% verified matches, contact prospective families on your behalf, and arrange confidential introductions.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowVipModal(true)}
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/25 transition cursor-pointer active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <span>👑</span>
+                  <span>Talk to VIP Consultant</span>
+                </button>
+
+                <a
+                  href="tel:18004196000"
+                  className="px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition cursor-pointer active:scale-95 flex items-center justify-center gap-2 no-underline"
+                  title="Direct Toll-Free Line: 1800-419-6000"
+                >
+                  <FontAwesomeIcon icon={faPhone} className="text-xs" />
+                  <span>1800-419-6000</span>
+                </a>
+              </div>
+            </div>
+          </div>
+
           {/* Card 3: Footer Box */}
           <div className="bg-white rounded-[28px] p-6 sm:p-10 shadow-xl border border-slate-100">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 pb-8 border-b border-slate-100">
-              
+
               {/* Column 1: About Us */}
               <div>
                 <h3 className="font-extrabold text-slate-900 text-base mb-3">
@@ -534,6 +594,9 @@ export default function Home() {
                   </li>
                   <li onClick={() => navigate('/success-stories')} className="hover:text-[#5227d8] cursor-pointer transition">
                     Milestones
+                  </li>
+                  <li onClick={() => navigate('/terms-conditions')} className="hover:text-[#5227d8] cursor-pointer transition">
+                    Terms & Conditions
                   </li>
                   <li onClick={() => navigate('/privacy-policy')} className="hover:text-[#5227d8] cursor-pointer transition">
                     Privacy Policy
@@ -581,6 +644,13 @@ export default function Home() {
         </div>
 
       </div>
+
+      {/* VIP Consultant Modal */}
+      <VipConsultantModal
+        isOpen={showVipModal}
+        onClose={() => setShowVipModal(false)}
+        currentUser={profile}
+      />
     </div>
   );
 }

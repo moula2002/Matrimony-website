@@ -1,7 +1,19 @@
 import axios from 'axios';
 
+const getBaseURL = () => {
+  if (typeof window !== 'undefined') {
+    if (import.meta.env.VITE_API_BASE_URL) {
+      return import.meta.env.VITE_API_BASE_URL;
+    }
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:5000/api';
+    }
+  }
+  return 'https://server.familiess.com/api';
+};
+
 const api = axios.create({
-  baseURL: 'https://server.familiess.com/api',
+  baseURL: getBaseURL(),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -34,7 +46,7 @@ api.interceptors.request.use(
       offlineError.isOffline = true;
       return Promise.reject(offlineError);
     }
-    
+
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -49,13 +61,32 @@ api.interceptors.request.use(
 // Response interceptor to handle 401 Unauthorized errors
 api.interceptors.response.use(
   (response) => {
+    try {
+      const url = response.config?.url || '';
+      if (typeof window !== 'undefined' && url.includes('/users/profile') && response.data && typeof response.data === 'object') {
+        const storedFeatured = localStorage.getItem('featured_account');
+        if (storedFeatured) {
+          const parsed = JSON.parse(storedFeatured);
+          const now = new Date();
+          const validUntil = parsed.validUntil ? new Date(parsed.validUntil) : null;
+          if (parsed.isActive && (!validUntil || validUntil > now)) {
+            response.data.isFeatured = true;
+            response.data.featuredAccount = parsed;
+          } else if (validUntil && validUntil <= now) {
+            localStorage.removeItem('featured_account');
+          }
+        }
+      }
+    } catch {
+      // Ignore storage/json parse errors
+    }
     return response;
   },
   (error) => {
     if (error.isOffline || (!error.response && error.message === 'Network Error')) {
       showOfflineToast();
     }
-    
+
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('token');
       if (typeof window !== 'undefined') {
@@ -65,16 +96,37 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-export const getPhotoUrl = (photoPath) => {
-  let path = photoPath;
-  if (path && typeof path === 'object' && path.url) {
-    path = path.url;
+import maleAvatar from '../assets/male_avatar.png';
+import femaleAvatar from '../assets/female_avatar.png';
+
+export const getDefaultAvatar = (gender) => {
+  if (!gender) return maleAvatar;
+  const g = String(gender).toLowerCase();
+  if (g === 'female' || g === 'f' || g === 'bride' || g === 'woman') {
+    return femaleAvatar;
   }
-  if (!path || typeof path !== 'string') return null;
+  return maleAvatar;
+};
+
+export const handleImageError = (e, gender) => {
+  if (e && e.currentTarget) {
+    e.currentTarget.onerror = null;
+    e.currentTarget.src = getDefaultAvatar(gender);
+  }
+};
+
+export const getPhotoUrl = (photoPath, gender) => {
+  let path = photoPath;
+  if (path && typeof path === 'object') {
+    path = path.url || path.secure_url || path.path || path.imageUrl || path.image || path.src || path.photo || path.link || '';
+  }
+  if (!path || typeof path !== 'string' || path.trim() === '') {
+    return gender ? getDefaultAvatar(gender) : null;
+  }
   if (path.startsWith('data:') || path.startsWith('http')) {
     return path;
   }
-  let formattedPath = path;
+  let formattedPath = path.trim();
   if (!formattedPath.includes('media_uploads')) {
     const cleanPath = formattedPath.startsWith('/') ? formattedPath.substring(1) : formattedPath;
     formattedPath = `/media_uploads/${cleanPath}`;
@@ -85,3 +137,4 @@ export const getPhotoUrl = (photoPath) => {
 };
 
 export default api;
+

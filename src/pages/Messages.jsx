@@ -1,18 +1,104 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import api, { getPhotoUrl } from '../api/axios';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import api, { getPhotoUrl, getDefaultAvatar, handleImageError } from '../api/axios';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faSmile, faSearch, faUser, faInfoCircle, faArrowLeft, faSpinner,
-  faPhone, faHeart, faChevronDown, faEdit, faMicrophone, faImage,
-  faMapMarkerAlt, faCopy, faCheck, faPlus, faCamera, faFileAlt, faFilePdf,
-  faDownload, faTimes
+  faPhone, faPhoneSlash, faHeart, faChevronDown, faEdit, faMicrophone,
+  faMicrophoneSlash, faVideo, faVideoSlash, faVolumeUp, faVolumeMute, faSync,
+  faImage, faMapMarkerAlt, faCopy, faCheck, faPlus, faCamera, faFileAlt, faFilePdf,
+  faDownload, faTimes, faClockRotateLeft, faCrown, faLock, faCommentDots
 } from '@fortawesome/free-solid-svg-icons';
 import loadingImg from '../assets/loading.png';
 import CallModal from '../components/CallModal';
+import CallHistoryModal from '../components/CallHistoryModal';
+import EmptyState from '../components/EmptyState';
+import { recordLocalCall, updateLocalCall } from '../utils/callHistoryManager';
+import { formatSiblings } from '../utils/profileHelpers';
 import { GIF_CATEGORIES, GIF_COLLECTION } from '../data/gifs';
 
 const EMOJIS = ['😀', '😂', '😍', '👍', '🔥', '❤️', '🎉', '🙌', '💡', '💬', '✨', '👏', '🥳', '😎', '💯'];
+
+// Helper to parse and define online status and last-seen display format precisely
+const parseUserOnlineStatus = (contact) => {
+  if (!contact) return { online: false, isOnline: false, lastActiveLabel: 'Offline', lastActiveTime: 'Offline' };
+
+  const p = contact.profile || {};
+
+  // Check explicit status indicators from existing backend data
+  const isExplicitOnline =
+    contact.isOnline === true ||
+    contact.online === true ||
+    contact.status === 'online' ||
+    p.isOnline === true ||
+    p.online === true ||
+    p.status === 'online';
+
+  const isExplicitOffline =
+    contact.status === 'offline' ||
+    contact.isOnline === false ||
+    p.status === 'offline';
+
+  // Check timestamp fields from existing data structure
+  const rawDate =
+    contact.lastActive ||
+    contact.lastSeen ||
+    contact.updatedAt ||
+    p.lastActive ||
+    p.lastSeen ||
+    p.updatedAt;
+
+  const lastActiveDate = rawDate ? new Date(rawDate) : null;
+  const hasValidDate = lastActiveDate instanceof Date && !isNaN(lastActiveDate.getTime());
+
+  let online = isExplicitOnline;
+  let lastActiveLabel = 'Offline';
+
+  if (hasValidDate) {
+    const diffMs = Date.now() - lastActiveDate.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHrs = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHrs / 24);
+
+    // Active within 3 minutes (180,000ms) is considered currently Online unless explicitly offline
+    if (diffMs >= 0 && diffMs < 180000 && !isExplicitOffline) {
+      online = true;
+    }
+
+    if (online) {
+      lastActiveLabel = 'Online';
+    } else {
+      // Defined Last-Seen Display Format:
+      if (diffMins < 1) {
+        lastActiveLabel = 'Last seen just now';
+      } else if (diffMins < 60) {
+        lastActiveLabel = `Last seen ${diffMins}m ago`;
+      } else if (diffHrs < 24) {
+        lastActiveLabel = `Last seen ${diffHrs}h ago`;
+      } else if (diffDays === 1) {
+        lastActiveLabel = 'Last seen yesterday';
+      } else if (diffDays < 7) {
+        lastActiveLabel = `Last seen ${diffDays}d ago`;
+      } else {
+        lastActiveLabel = `Last seen ${lastActiveDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+      }
+    }
+  } else {
+    // If no timestamp is available
+    if (online) {
+      lastActiveLabel = 'Online';
+    } else {
+      lastActiveLabel = 'Offline';
+    }
+  }
+
+  return {
+    online,
+    isOnline: online,
+    lastActiveLabel,
+    lastActiveTime: lastActiveLabel
+  };
+};
 
 export default function Messages() {
   const [contacts, setContacts] = useState([]);
@@ -29,9 +115,70 @@ export default function Messages() {
   const [likedMessages, setLikedMessages] = useState({});
   const [callModalData, setCallModalData] = useState({ isOpen: false, phone: '', name: '', photo: '' });
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
+  const [showCallHistoryModal, setShowCallHistoryModal] = useState(false);
+  const [callHistoryFilterUserId, setCallHistoryFilterUserId] = useState(null);
+  const [isBlockingUser, setIsBlockingUser] = useState(false);
+  const [chatError, setChatError] = useState(null);
   
   const navigate = useNavigate();
+  const location = useLocation();
   const isPremium = currentUserProfile?.premiumMembership?.isPremium || false;
+  const isSenderPremium = Boolean(currentUserProfile?.premiumMembership?.isPremium);
+  const isReceiverPremium = useMemo(() => {
+    if (!activeContact) return false;
+    const pm = activeContact.premiumMembership || activeContact.profile?.premiumMembership || {};
+    return Boolean(pm.isPremium || activeContact.isPremium || activeContact.profile?.isPremium);
+  }, [activeContact]);
+
+  // Feature 11: Calling & Messaging Permission Matrix
+  // - Premium -> Premium: Call + Chat allowed
+  // - Premium -> Free: Call + Chat allowed
+  // - Free -> Premium: Call blocked (upgrade prompt); Chat allowed in both directions
+  // - Free -> Free: Call and Chat blocked (with clear explanation)
+  const canCall = isSenderPremium;
+  const canChat = isSenderPremium || isReceiverPremium;
+
+  const [availablePlans, setAvailablePlans] = useState([]);
+  const [availableCameras, setAvailableCameras] = useState([]);
+  const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
+
+  // Determine whether current user's subscription plan includes Video Calling
+  const hasVideoCallingAccess = useMemo(() => {
+    if (!currentUserProfile) return false;
+    const pm = currentUserProfile.premiumMembership || currentUserProfile.profile?.premiumMembership || {};
+    if (!pm.isPremium) return false;
+
+    // Check expiry
+    if (pm.expiryDate && new Date(pm.expiryDate) < new Date()) {
+      return false;
+    }
+
+    // Direct property on membership
+    if (typeof pm.videoCalling === 'boolean') {
+      return pm.videoCalling;
+    }
+
+    // Match with availablePlans from server
+    if (availablePlans.length > 0) {
+      const matched = availablePlans.find(
+        (p) => (pm.planId && String(p._id) === String(pm.planId)) ||
+               (pm.planType && p.name?.toLowerCase() === pm.planType?.toLowerCase())
+      );
+      if (matched && typeof matched.videoCalling === 'boolean') {
+        return matched.videoCalling;
+      }
+    }
+
+    // Fallback based on known plan names: Diamond & Platinum have video; Gold & Highlight do not
+    const planName = String(pm.planType || '').toLowerCase();
+    if (planName.includes('diamond') || planName.includes('platinum') || planName.includes('vip')) {
+      return true;
+    }
+
+    return false;
+  }, [currentUserProfile, availablePlans]);
+
+  const targetContactId = location.state?.contactId || location.state?.userId || new URLSearchParams(location.search).get('userId');
 
   // Emoji Picker, GIF Picker, Attachment Menu & Recording States
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -80,17 +227,57 @@ export default function Messages() {
   const [remoteUserJoined, setRemoteUserJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
+  const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+  const remoteAudioTrackRef = useRef(null);
 
   useEffect(() => {
-    if (window.AgoraRTC) {
-      const client = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-      setAgoraClient(client);
+    let timer;
+    if (isInCall) {
+      setCallDuration(0);
+      timer = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setCallDuration(0);
     }
-  }, []);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isInCall]);
+
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    const initAgora = () => {
+      if (window.AgoraRTC && !agoraClient) {
+        const client = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+        setAgoraClient(client);
+        return true;
+      }
+      return false;
+    };
+
+    if (!initAgora()) {
+      const interval = setInterval(() => {
+        if (initAgora()) clearInterval(interval);
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [agoraClient]);
 
   const handleEndCall = async () => {
     if (window.activeCallId) {
       try {
+        updateLocalCall(window.activeCallId, {
+          status: 'ended',
+          duration: callDuration,
+          endedAt: new Date().toISOString()
+        });
         await api.post('/call/respond', {
           callId: window.activeCallId,
           status: 'ended'
@@ -115,31 +302,44 @@ export default function Messages() {
         await agoraClient.leave();
       } catch (e) {}
     }
+
+    if (remoteAudioTrackRef.current) {
+      remoteAudioTrackRef.current = null;
+    }
     
     setActiveCall(null);
     setIsInCall(false);
     setRemoteUserJoined(false);
     setIsMuted(false);
     setIsVideoDisabled(false);
+    setIsSpeakerMuted(false);
+    setCallDuration(0);
   };
 
   const startAgoraSession = async (channel, token, isVideo) => {
-    if (!agoraClient || !window.AgoraRTC) return;
+    let client = agoraClient;
+    if (!client && window.AgoraRTC) {
+      client = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      setAgoraClient(client);
+    }
+    if (!client || !window.AgoraRTC) {
+      throw new Error("Video calling service is currently initializing. Please try again.");
+    }
     try {
       const APP_ID = "f528113caaf04056b2f27c6c9e3ac4ad";
-      await agoraClient.join(APP_ID, channel, token, null);
+      await client.join(APP_ID, channel, token, null);
       
       const audioTrack = await window.AgoraRTC.createMicrophoneAudioTrack();
       setLocalAudioTrack(audioTrack);
       
       let videoTrack = null;
-      if (isVideo) {
+      if (isVideo && hasVideoCallingAccess) {
         videoTrack = await window.AgoraRTC.createCameraVideoTrack();
         setLocalVideoTrack(videoTrack);
       }
       
       const tracksToPublish = [audioTrack, videoTrack].filter(Boolean);
-      await agoraClient.publish(tracksToPublish);
+      await client.publish(tracksToPublish);
       
       setIsInCall(true);
       
@@ -150,8 +350,8 @@ export default function Messages() {
         }, 500);
       }
       
-      agoraClient.on('user-published', async (user, mediaType) => {
-        await agoraClient.subscribe(user, mediaType);
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
         setRemoteUserJoined(true);
         if (mediaType === 'video') {
           setTimeout(() => {
@@ -160,11 +360,12 @@ export default function Messages() {
           }, 500);
         }
         if (mediaType === 'audio') {
+          remoteAudioTrackRef.current = user.audioTrack;
           user.audioTrack.play();
         }
       });
       
-      agoraClient.on('user-left', () => {
+      client.on('user-left', () => {
         setRemoteUserJoined(false);
         handleEndCall();
       });
@@ -178,6 +379,13 @@ export default function Messages() {
   const handleInitiateCall = async (type) => {
     if (!activeContact || !currentUserProfile) return;
     const isVideo = type === 'video';
+
+    // Strict guard: Block video call initiation if plan does not include video calling
+    if (isVideo && !hasVideoCallingAccess) {
+      navigate('/plans');
+      return;
+    }
+
     const channelName = `call_${currentUserProfile._id}_${activeContact._id}_${Date.now()}`;
     
     setActiveCall(type);
@@ -190,6 +398,16 @@ export default function Messages() {
         isVideoCall: isVideo
       });
       const activeCallId = initRes.data._id;
+      recordLocalCall({
+        _id: activeCallId,
+        caller: currentUserProfile,
+        receiver: activeContact,
+        channelName,
+        isVideoCall: isVideo,
+        status: 'ringing',
+        createdAt: new Date().toISOString(),
+        duration: 0
+      });
       
       const tokenRes = await api.post('/call/token', {
         channelName,
@@ -202,6 +420,7 @@ export default function Messages() {
       window.activeCallId = activeCallId;
     } catch (err) {
       console.error("Error initiating call:", err);
+      alert(err.response?.data?.message || err.message || "Failed to initiate call.");
       handleEndCall();
     }
   };
@@ -209,25 +428,36 @@ export default function Messages() {
   const handleAcceptCall = async () => {
     if (!incomingCall) return;
     
-    const isVideo = incomingCall.isVideoCall;
+    // Only accept with video if user's subscription plan allows video calling
+    const isVideo = Boolean(incomingCall.isVideoCall && hasVideoCallingAccess);
     setActiveCall(isVideo ? 'video' : 'voice');
     setIsVideoDisabled(!isVideo);
+    const answeringCall = incomingCall;
     setIncomingCall(null);
     
     try {
       await api.post('/call/respond', {
-        callId: incomingCall._id,
+        callId: answeringCall._id,
         status: 'accepted'
       });
-      window.activeCallId = incomingCall._id;
+      window.activeCallId = answeringCall._id;
+      recordLocalCall({
+        _id: answeringCall._id,
+        caller: answeringCall.caller,
+        receiver: currentUserProfile,
+        channelName: answeringCall.channelName,
+        isVideoCall: isVideo,
+        status: 'accepted',
+        createdAt: answeringCall.createdAt || new Date().toISOString()
+      });
       
       const tokenRes = await api.post('/call/token', {
-        channelName: incomingCall.channelName,
+        channelName: answeringCall.channelName,
         uid: 0,
         role: 'publisher'
       });
       
-      await startAgoraSession(incomingCall.channelName, tokenRes.data.token, isVideo);
+      await startAgoraSession(answeringCall.channelName, tokenRes.data.token, isVideo);
     } catch (err) {
       console.error("Error accepting call:", err);
       handleEndCall();
@@ -236,9 +466,13 @@ export default function Messages() {
 
   const handleDeclineCall = async () => {
     if (!incomingCall) return;
+    const decliningCall = incomingCall;
     try {
+      updateLocalCall(decliningCall._id, {
+        status: 'rejected'
+      });
       await api.post('/call/respond', {
-        callId: incomingCall._id,
+        callId: decliningCall._id,
         status: 'rejected'
       });
     } catch (err) {
@@ -249,23 +483,57 @@ export default function Messages() {
 
   const handleToggleMute = () => {
     if (localAudioTrack) {
-      if (isMuted) {
-        localAudioTrack.setEnabled(true);
-      } else {
-        localAudioTrack.setEnabled(false);
-      }
-      setIsMuted(!isMuted);
+      localAudioTrack.setEnabled(isMuted);
     }
+    setIsMuted(!isMuted);
   };
 
   const handleToggleVideo = () => {
+    if (!hasVideoCallingAccess) return;
     if (localVideoTrack) {
-      if (isVideoDisabled) {
-        localVideoTrack.setEnabled(true);
-      } else {
-        localVideoTrack.setEnabled(false);
+      localVideoTrack.setEnabled(isVideoDisabled);
+    }
+    setIsVideoDisabled(!isVideoDisabled);
+  };
+
+  // Switch camera device / flip camera on call screen (only if plan supports video calling)
+  const handleSwitchCamera = async () => {
+    if (!hasVideoCallingAccess || !localVideoTrack) return;
+    try {
+      let cameras = availableCameras;
+      if (!cameras || cameras.length === 0) {
+        if (window.AgoraRTC?.getCameras) {
+          cameras = await window.AgoraRTC.getCameras();
+        } else if (navigator.mediaDevices?.enumerateDevices) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          cameras = devices.filter(d => d.kind === 'videoinput');
+        }
+        setAvailableCameras(cameras || []);
       }
-      setIsVideoDisabled(!isVideoDisabled);
+      if (cameras && cameras.length > 1) {
+        const nextIdx = (currentCameraIndex + 1) % cameras.length;
+        const nextCam = cameras[nextIdx];
+        if (nextCam && localVideoTrack.setDevice) {
+          await localVideoTrack.setDevice(nextCam.deviceId);
+          setCurrentCameraIndex(nextIdx);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not switch camera device on call screen:', err);
+    }
+  };
+
+  const handleToggleSpeaker = () => {
+    if (remoteAudioTrackRef.current) {
+      if (isSpeakerMuted) {
+        remoteAudioTrackRef.current.setVolume(100);
+        setIsSpeakerMuted(false);
+      } else {
+        remoteAudioTrackRef.current.setVolume(0);
+        setIsSpeakerMuted(true);
+      }
+    } else {
+      setIsSpeakerMuted(!isSpeakerMuted);
     }
   };
 
@@ -294,78 +562,142 @@ export default function Messages() {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Fetch current user profile
+  // Fetch current user profile and public membership plans
   useEffect(() => {
-    const fetchCurrentUser = async () => {
+    const fetchCurrentUserAndPlans = async () => {
       try {
         const res = await api.get('/users/profile');
         setCurrentUserProfile(res.data);
       } catch (err) {
         console.error('Error fetching current user profile:', err);
       }
+      try {
+        const plansRes = await api.get('/public/plans');
+        if (Array.isArray(plansRes.data)) {
+          setAvailablePlans(plansRes.data);
+        }
+      } catch (pErr) {
+        console.warn('Error fetching public membership plans in Messages:', pErr);
+      }
     };
-    fetchCurrentUser();
+    fetchCurrentUserAndPlans();
   }, []);
 
   // Fetch accepted contacts with dynamic online/offline status
-  useEffect(() => {
-    const fetchContacts = async () => {
-      try {
-        setLoadingContacts(true);
-        const res = await api.get('/users/chats');
-        const data = res.data || [];
-        const contactsWithStatus = data.map((c) => {
-          const lastActive = c.lastActive ? new Date(c.lastActive) : null;
-          let isOnline = false;
-          let activeLabel = 'offline';
-          if (lastActive) {
-            const diffMs = Date.now() - lastActive.getTime();
-            const diffMins = Math.floor(diffMs / 60000);
-            if (diffMs < 180000) { // 3 minutes
-              isOnline = true;
-              activeLabel = 'now';
-            } else if (diffMins < 60) {
-              activeLabel = `${diffMins}m ago`;
-            } else {
-              const diffHrs = Math.floor(diffMins / 60);
-              if (diffHrs < 24) {
-                activeLabel = `${diffHrs}h ago`;
-              } else {
-                activeLabel = `${Math.floor(diffHrs / 24)}d ago`;
-              }
-            }
-          }
-          return {
-            ...c,
-            online: isOnline,
-            lastActiveTime: activeLabel
-          };
-        });
-        setContacts(contactsWithStatus);
-        if (contactsWithStatus.length > 0) {
-          setActiveContact(contactsWithStatus[0]);
+  const fetchContacts = useCallback(async (isBackground = false) => {
+    try {
+      if (!isBackground) setLoadingContacts(true);
+      const res = await api.get('/users/chats');
+      const data = res.data || [];
+      const contactsWithStatus = data.map((c) => {
+        const statusInfo = parseUserOnlineStatus(c);
+        return {
+          ...c,
+          ...statusInfo
+        };
+      });
+
+      setContacts(contactsWithStatus);
+
+      // Keep activeContact updated with the latest status or select targetContactId if provided
+      setActiveContact((prevActive) => {
+        if (targetContactId) {
+          const matchedTarget = contactsWithStatus.find((item) => String(item._id) === String(targetContactId));
+          if (matchedTarget) return matchedTarget;
         }
-      } catch (err) {
-        console.error('Error fetching chat contacts:', err);
-      } finally {
-        setLoadingContacts(false);
-      }
-    };
-    fetchContacts();
-  }, []);
+        if (!prevActive && contactsWithStatus.length > 0) {
+          return contactsWithStatus[0];
+        }
+        if (prevActive) {
+          const updatedActive = contactsWithStatus.find((item) => item._id === prevActive._id);
+          if (updatedActive) {
+            return {
+              ...prevActive,
+              ...updatedActive,
+              online: updatedActive.online,
+              isOnline: updatedActive.isOnline,
+              lastActiveLabel: updatedActive.lastActiveLabel,
+              lastActiveTime: updatedActive.lastActiveTime
+            };
+          }
+        }
+        return prevActive;
+      });
+    } catch (err) {
+      console.error('Error fetching chat contacts:', err);
+    } finally {
+      if (!isBackground) setLoadingContacts(false);
+    }
+  }, [targetContactId]);
+
+  useEffect(() => {
+    fetchContacts(false);
+
+    // Periodic dynamic update of contacts & online status every 10 seconds
+    const statusInterval = setInterval(() => {
+      fetchContacts(true);
+    }, 10000);
+
+    return () => clearInterval(statusInterval);
+  }, [fetchContacts]);
+
+  // Handle direct opening of conversation with a target member
+  useEffect(() => {
+    if (!targetContactId || loadingContacts) return;
+    const existing = contacts.find((c) => String(c._id) === String(targetContactId));
+    if (existing) {
+      setActiveContact(existing);
+    } else {
+      api.get(`/users/profile/${targetContactId}`).then((res) => {
+        if (res.data) {
+          const u = res.data;
+          const newContact = {
+            ...u,
+            _id: u._id || targetContactId,
+            profile: u.profile || u,
+            ...parseUserOnlineStatus(u)
+          };
+          setContacts((prev) => {
+            if (prev.some((item) => String(item._id) === String(targetContactId))) return prev;
+            return [newContact, ...prev];
+          });
+          setActiveContact(newContact);
+        }
+      }).catch((err) => {
+        console.warn('Could not load target contact details for messaging:', err);
+      });
+    }
+  }, [targetContactId, loadingContacts, contacts]);
 
   // Fetch messages when active contact changes
   useEffect(() => {
     if (!activeContact) return;
+    let isCancelled = false;
+
     const fetchMessages = async () => {
       try {
         setLoadingMessages(true);
+        setChatError(null);
         const res = await api.get(`/users/chat/${activeContact._id}`);
-        setMessages(res.data || []);
+        if (!isCancelled) {
+          setMessages(res.data || []);
+          setChatError(null);
+        }
       } catch (err) {
-        console.error('Error fetching messages:', err);
+        if (!isCancelled) {
+          console.error('Error fetching messages:', err);
+          const is403 = err.response?.status === 403;
+          const errMsg = err.response?.data?.message || err.message || 'Unable to load messages.';
+          setChatError({
+            status: err.response?.status,
+            message: errMsg,
+            isPermissionError: is403
+          });
+        }
       } finally {
-        setLoadingMessages(false);
+        if (!isCancelled) {
+          setLoadingMessages(false);
+        }
       }
     };
     fetchMessages();
@@ -373,13 +705,28 @@ export default function Messages() {
     const interval = setInterval(async () => {
       try {
         const res = await api.get(`/users/chat/${activeContact._id}`);
-        setMessages(res.data || []);
+        if (!isCancelled) {
+          setMessages(res.data || []);
+          setChatError(null);
+        }
       } catch (err) {
-        console.error('Error polling messages:', err);
+        if (!isCancelled) {
+          if (err.response?.status === 403) {
+            clearInterval(interval);
+            setChatError({
+              status: 403,
+              message: err.response?.data?.message || 'Chat is available only when at least one user has an active premium membership.',
+              isPermissionError: true
+            });
+          }
+        }
       }
     }, 3000);
 
-    return () => clearInterval(interval);
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
   }, [activeContact]);
 
   // Scroll to bottom of message list
@@ -404,6 +751,12 @@ export default function Messages() {
     if (e) e.preventDefault();
     if (!inputText.trim() || !activeContact || sending) return;
 
+    if (!canChat) {
+      alert('Chat between free members is not permitted. Please upgrade to a Premium plan to start chatting.');
+      navigate('/plans');
+      return;
+    }
+
     const messageText = inputText;
     setInputText('');
     setSending(true);
@@ -416,9 +769,21 @@ export default function Messages() {
       
       const newMsg = res.data;
       setMessages((prev) => [...prev, newMsg]);
+      setChatError(null);
 
     } catch (err) {
       console.error('Error sending message:', err);
+      const is403 = err.response?.status === 403;
+      const errorMsg = err.response?.data?.message || 'Failed to send message. Please try again.';
+      setInputText(messageText); // Restore user's draft on error
+      if (is403) {
+        setChatError({
+          status: 403,
+          message: errorMsg,
+          isPermissionError: true
+        });
+      }
+      alert(errorMsg);
     } finally {
       setSending(false);
     }
@@ -439,8 +804,19 @@ export default function Messages() {
       
       const newMsg = res.data;
       setMessages((prev) => [...prev, newMsg]);
+      setChatError(null);
     } catch (err) {
       console.error('Error sending voice message:', err);
+      const is403 = err.response?.status === 403;
+      const errorMsg = err.response?.data?.message || 'Failed to send voice message. Please try again.';
+      if (is403) {
+        setChatError({
+          status: 403,
+          message: errorMsg,
+          isPermissionError: true
+        });
+      }
+      alert(errorMsg);
     } finally {
       setSending(false);
     }
@@ -480,9 +856,19 @@ export default function Messages() {
       
       const newMsg = res.data;
       setMessages((prev) => [...prev, newMsg]);
+      setChatError(null);
     } catch (err) {
       console.error('Error sending attachment:', err);
-      alert('Failed to send attachment. Please try again.');
+      const is403 = err.response?.status === 403;
+      const errorMsg = err.response?.data?.message || 'Failed to send attachment. Please try again.';
+      if (is403) {
+        setChatError({
+          status: 403,
+          message: errorMsg,
+          isPermissionError: true
+        });
+      }
+      alert(errorMsg);
     } finally {
       setSending(false);
     }
@@ -502,9 +888,19 @@ export default function Messages() {
       });
       const newMsg = res.data;
       setMessages((prev) => [...prev, newMsg]);
+      setChatError(null);
     } catch (err) {
       console.error('Error sending GIF:', err);
-      alert('Failed to send GIF. Please try again.');
+      const is403 = err.response?.status === 403;
+      const errorMsg = err.response?.data?.message || 'Failed to send GIF. Please try again.';
+      if (is403) {
+        setChatError({
+          status: 403,
+          message: errorMsg,
+          isPermissionError: true
+        });
+      }
+      alert(errorMsg);
     } finally {
       setSending(false);
     }
@@ -529,6 +925,65 @@ export default function Messages() {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const handleBlockUser = async () => {
+    if (!activeContact || isBlockingUser) return;
+    const contactName = activeContact.profile?.name || activeContact.name || 'this user';
+    
+    if (!window.confirm(`Are you sure you want to block ${contactName}?`)) {
+      return;
+    }
+
+    setIsBlockingUser(true);
+    try {
+      // 1. Retrieve the latest 5 messages from this conversation
+      let chatMessages = messages;
+      if (!chatMessages || chatMessages.length === 0) {
+        try {
+          const res = await api.get(`/users/chat/${activeContact._id}`);
+          if (Array.isArray(res.data)) {
+            chatMessages = res.data;
+          }
+        } catch (fetchErr) {
+          console.warn('Could not fetch latest chat messages before blocking:', fetchErr);
+          chatMessages = [];
+        }
+      }
+
+      // 2. Select the last 5 messages in chronological order (oldest to newest)
+      const recent5 = (chatMessages || []).slice(-5);
+      const formattedMessages = recent5.map((msg) => ({
+        _id: msg._id || msg.id,
+        senderId: typeof msg.sender === 'object' ? (msg.sender?._id || msg.sender?.id) : msg.sender,
+        sender: typeof msg.sender === 'object' ? (msg.sender?.profile?.name || msg.sender?.name || 'User') : (msg.sender || 'User'),
+        receiverId: typeof msg.receiver === 'object' ? (msg.receiver?._id || msg.receiver?.id) : msg.receiver,
+        content: msg.text || msg.content || (msg.mediaUrl ? `[${msg.mediaType || 'Attachment'}]` : ''),
+        text: msg.text || msg.content || '',
+        mediaUrl: msg.mediaUrl || null,
+        mediaType: msg.mediaType || null,
+        timestamp: msg.createdAt || msg.timestamp || new Date().toISOString(),
+        createdAt: msg.createdAt || msg.timestamp || new Date().toISOString()
+      }));
+
+      // 3. Send block request with the last 5 messages included in body
+      await api.post(`/users/block/${activeContact._id}`, {
+        messages: formattedMessages,
+        lastMessages: formattedMessages
+      });
+
+      alert('User blocked successfully.');
+      setActiveContact(null);
+      setContacts((prev) => prev.filter((c) => String(c._id) !== String(activeContact._id)));
+      if (typeof fetchContacts === 'function') {
+        fetchContacts(true);
+      }
+    } catch (err) {
+      console.error('Error blocking user:', err);
+      alert(err.response?.data?.message || 'Failed to block user. Please try again.');
+    } finally {
+      setIsBlockingUser(false);
+    }
   };
 
   const filteredContacts = contacts.filter(c => {
@@ -573,6 +1028,21 @@ const displayUsername = currentUserProfile?.profile?.name
               <h2 className="text-xl font-bold tracking-tight text-slate-900">{displayUsername}</h2>
               <FontAwesomeIcon icon={faChevronDown} className="text-xs text-slate-500" />
             </div>
+            {/* Call History Button */}
+            <button
+              id="chat-call-history-sidebar-btn"
+              type="button"
+              onClick={() => {
+                setCallHistoryFilterUserId(null);
+                setShowCallHistoryModal(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-[#5D34F7]/10 text-slate-700 hover:text-[#5D34F7] font-bold text-xs transition-all cursor-pointer border border-slate-200/80 shadow-2xs group active:scale-95"
+              title="View Call History"
+              aria-label="View Call History"
+            >
+              <FontAwesomeIcon icon={faClockRotateLeft} className="text-slate-500 group-hover:text-[#5D34F7] text-xs transition-colors" />
+              <span>Call History</span>
+            </button>
           </div>
 
           {/* Search Contacts */}
@@ -605,8 +1075,10 @@ const displayUsername = currentUserProfile?.profile?.name
                         <FontAwesomeIcon icon={faUser} className="text-slate-400 text-lg" />
                       )}
                     </div>
-                    {item.online && (
-                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></span>
+                    {item.online ? (
+                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full ring-1 ring-emerald-500/20" title="Online"></span>
+                    ) : (
+                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-slate-300 border-2 border-white rounded-full" title="Offline"></span>
                     )}
                   </div>
                   <span className="text-[10px] text-slate-500 truncate w-full text-center mt-1 font-medium">{item.name}</span>
@@ -615,7 +1087,7 @@ const displayUsername = currentUserProfile?.profile?.name
             </div>
           )}
 
-          {/* Messages Header Tab (Requests Removed) */}
+          {/* Messages Header Tab */}
           <div className="px-4 py-2 flex items-center justify-between shrink-0">
             <h3 className="font-extrabold text-[15px] text-slate-905 flex items-center gap-2">
               <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -629,6 +1101,20 @@ const displayUsername = currentUserProfile?.profile?.name
               </svg>
               <span>Messages</span>
             </h3>
+            <button
+              id="chat-call-logs-pill-btn"
+              type="button"
+              onClick={() => {
+                setCallHistoryFilterUserId(null);
+                setShowCallHistoryModal(true);
+              }}
+              className="text-xs font-bold text-[#5D34F7] hover:bg-[#5D34F7]/10 px-2.5 py-1 rounded-xl flex items-center gap-1.5 cursor-pointer transition border border-[#5D34F7]/15 shadow-2xs active:scale-95"
+              title="View Call Logs"
+              aria-label="View Call Logs"
+            >
+              <FontAwesomeIcon icon={faPhone} className="text-[10px]" />
+              <span>Call Logs</span>
+            </button>
           </div>
 
           {/* Contacts List */}
@@ -638,14 +1124,48 @@ const displayUsername = currentUserProfile?.profile?.name
                 <img src={loadingImg} className="w-10 h-10 animate-spin" alt="Loading..." />
               </div>
             ) : filteredContacts.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 text-sm font-semibold">
-                No active conversations
-              </div>
+              searchQuery.trim() ? (
+                <div className="text-center py-8 px-4 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-100 mx-auto flex items-center justify-center text-slate-400">
+                    <FontAwesomeIcon icon={faSearch} className="text-base" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">No chats found</h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">No conversation matches "{searchQuery.trim()}".</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                  >
+                    Clear Search
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center py-10 px-4 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 mx-auto flex items-center justify-center text-[#5D34F7]">
+                    <FontAwesomeIcon icon={faCommentDots} className="text-lg" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">No Active Conversations</h4>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Send interests or accept requests to start chatting with verified members.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/preference-matches')}
+                    className="px-4 py-2 bg-gradient-to-r from-[#5D34F7] to-[#4024DB] text-white text-xs font-bold rounded-xl transition shadow-xs active:scale-95 cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    Explore Matches
+                  </button>
+                </div>
+              )
             ) : (
               filteredContacts.map((contact, idx) => {
                 const isActive = activeContact?._id === contact._id;
                 const p = contact.profile || {};
-                const hasUnread = idx === 0 || idx === 3;
+                const hasUnread = !isActive && Boolean(contact.unreadCount > 0 || contact.hasUnread || contact.unread);
                 return (
                   <button
                     key={contact._id}
@@ -657,19 +1177,54 @@ const displayUsername = currentUserProfile?.profile?.name
                     <div className="relative shrink-0">
                       <div className="w-14 h-14 rounded-full overflow-hidden border border-slate-200 flex items-center justify-center bg-slate-100">
                         {p.photos && p.photos[0] ? (
-                          <img src={getPhotoUrl(p.photos[0])} alt="Avatar" className="w-full h-full object-cover" />
+                          <img 
+                            src={getPhotoUrl(p.photos[0], p.gender)} 
+                            alt={p.name || 'Avatar'} 
+                            onError={(e) => handleImageError(e, p.gender)}
+                            className="w-full h-full object-cover" 
+                          />
                         ) : (
-                          <FontAwesomeIcon icon={faUser} className="text-slate-400 text-lg" />
+                          <img 
+                            src={getDefaultAvatar(p.gender)} 
+                            alt={p.name || 'Avatar'} 
+                            className="w-full h-full object-cover" 
+                          />
                         )}
                       </div>
-                      {contact.online && (
-                        <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></span>
+                      {contact.online ? (
+                        <span 
+                          className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full ring-1 ring-emerald-500/20"
+                          title="Online"
+                        ></span>
+                      ) : (
+                        <span 
+                          className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-slate-300 border-2 border-white rounded-full"
+                          title={contact.lastActiveLabel || 'Offline'}
+                        ></span>
                       )}
                     </div>
-                    <div className="text-left overflow-hidden flex-1">
-                      <h4 className={`text-sm truncate leading-snug ${hasUnread ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}`}>{p.name || 'Matrimony Member'}</h4>
+                    <div className="text-left overflow-hidden flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <h4 className={`text-sm truncate leading-snug ${hasUnread ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}`}>
+                          {p.name || 'Matrimony Member'}
+                        </h4>
+                        {contact.online ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200/70 px-1.5 py-0.5 rounded-full shrink-0 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>Online</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-slate-400 shrink-0 truncate max-w-[95px]">
+                            {contact.lastActiveLabel || 'Offline'}
+                          </span>
+                        )}
+                      </div>
                       <p className={`text-xs truncate mt-0.5 ${hasUnread ? 'font-bold text-slate-900' : 'text-slate-500'}`}>
-                        {hasUnread ? 'sent an attachment.' : (contact.online ? 'Active now' : `Active ${contact.lastActiveTime}`)}
+                        {hasUnread ? 'sent an attachment.' : (contact.online ? (
+                          <span className="text-emerald-600 font-semibold">Active now</span>
+                        ) : (
+                          <span>{contact.lastActiveLabel || 'Offline'}</span>
+                        ))}
                         <span className="text-slate-400 ml-1.5">• {idx + 1}h</span>
                       </p>
                     </div>
@@ -689,40 +1244,129 @@ const displayUsername = currentUserProfile?.profile?.name
             <>
               {/* Chat Header */}
               <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   <button 
                     onClick={() => setActiveContact(null)} 
-                    className="md:hidden p-1.5 hover:bg-slate-100 rounded-full text-slate-700 transition mr-1"
+                    className="md:hidden p-1.5 hover:bg-slate-100 rounded-full text-slate-700 transition mr-1 shrink-0"
                   >
                     <FontAwesomeIcon icon={faArrowLeft} />
                   </button>
-                  <div 
-                    onClick={() => { setPreviewContact(activeContact); setActivePreviewImage(activeContact.profile?.photos?.[0] || ''); }}
-                    className="relative w-11 h-11 rounded-full overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0 cursor-pointer hover:opacity-90 transition"
-                  >
-                    {activeContact.profile?.photos && activeContact.profile.photos[0] ? (
-                      <img src={getPhotoUrl(activeContact.profile.photos[0])} alt="Avatar" className="w-full h-full object-cover" />
+                  <div className="relative shrink-0">
+                    <div 
+                      onClick={() => { setPreviewContact(activeContact); setActivePreviewImage(activeContact.profile?.photos?.[0] || ''); }}
+                      className="w-11 h-11 rounded-full overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer hover:opacity-90 transition"
+                    >
+                      {activeContact.profile?.photos && activeContact.profile.photos[0] ? (
+                        <img 
+                          src={getPhotoUrl(activeContact.profile.photos[0], activeContact.profile.gender)} 
+                          alt={activeContact.profile.name || 'Avatar'} 
+                          onError={(e) => handleImageError(e, activeContact.profile.gender)}
+                          className="w-full h-full object-cover" 
+                        />
+                      ) : (
+                        <img 
+                          src={getDefaultAvatar(activeContact.profile?.gender)} 
+                          alt="Avatar" 
+                          className="w-full h-full object-cover" 
+                        />
+                      )}
+                    </div>
+                    {activeContact.online ? (
+                      <span 
+                        className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full ring-1 ring-emerald-500/20"
+                        title="Online"
+                      ></span>
                     ) : (
-                      <FontAwesomeIcon icon={faUser} className="text-slate-400" />
+                      <span 
+                        className="absolute bottom-0 right-0 w-3 h-3 bg-slate-300 border-2 border-white rounded-full"
+                        title={activeContact.lastActiveLabel || 'Offline'}
+                      ></span>
                     )}
                   </div>
                   <div 
                     onClick={() => { setPreviewContact(activeContact); setActivePreviewImage(activeContact.profile?.photos?.[0] || ''); }}
-                    className="cursor-pointer hover:opacity-90 transition"
+                    className="cursor-pointer hover:opacity-90 transition min-w-0"
                   >
-                    <h3 className="font-bold text-sm text-slate-955 leading-tight">
-                      {activeContact.profile?.name || 'Matrimony Member'}
-                    </h3>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      {activeContact.online ? 'Active now' : `Active ${activeContact.lastActiveTime}`}
-                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-sm text-slate-900 leading-tight truncate">
+                        {activeContact.profile?.name || 'Matrimony Member'}
+                      </h3>
+                      {activeContact.online ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-[10px] font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>Online</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-slate-100 border border-slate-200/60 text-slate-500 text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                          <span>Offline</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] mt-0.5">
+                      {activeContact.online ? (
+                        <span className="text-emerald-600 font-bold flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                          <span>Active now</span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-medium flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                          <span>{activeContact.lastActiveLabel || 'Offline'}</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 text-slate-700 relative">
+                <div className="flex items-center gap-2 sm:gap-3 text-slate-700 relative shrink-0">
+                  {/* Video Call Button */}
                   <button 
+                    id="chat-video-call-btn"
                     onClick={() => {
-                      if (!isPremium) {
+                      if (!canCall) {
+                        alert(isReceiverPremium
+                          ? 'Video calling is a Premium feature. Upgrade your plan to initiate direct voice and video calls.'
+                          : 'Direct calling between free members is not permitted. Upgrade to Premium to unlock calling.');
+                        navigate('/plans');
+                        return;
+                      }
+                      if (!hasVideoCallingAccess) {
+                        navigate('/plans');
+                        return;
+                      }
+                      if (activeContact.settings?.allowVoiceAndVideoCalls === false) {
+                        alert('This member has disabled incoming calls.');
+                        return;
+                      }
+                      handleInitiateCall('video');
+                    }} 
+                    className={`transition p-2 rounded-full cursor-pointer relative flex items-center justify-center shrink-0 active:scale-95 ${
+                      canCall && hasVideoCallingAccess
+                        ? 'hover:text-[#5D34F7] hover:bg-purple-50 text-slate-700'
+                        : 'text-slate-400 hover:text-slate-500 opacity-60 hover:opacity-100 hover:bg-slate-100'
+                    }`}
+                    title={
+                      canCall && hasVideoCallingAccess 
+                        ? "Start Video Call" 
+                        : (!canCall
+                            ? (isReceiverPremium ? "Upgrade to call this Premium member" : "Upgrade to Premium to unlock calling")
+                            : "Video calling requires Diamond or Platinum Plan. Click to upgrade.")
+                    }
+                    aria-label={canCall && hasVideoCallingAccess ? "Start Video Call" : "Upgrade to Video Call"}
+                  >
+                    {(!canCall || !hasVideoCallingAccess) && <span className="absolute -top-1 -right-1 text-[9px] leading-none select-none">🔒</span>}
+                    <FontAwesomeIcon icon={faVideo} className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                  </button>
+
+                  {/* Phone Call Button */}
+                  <button 
+                    id="chat-phone-call-btn"
+                    onClick={() => {
+                      if (!canCall) {
+                        alert(isReceiverPremium
+                          ? 'Voice calling is a Premium feature. Upgrade your plan to initiate calls.'
+                          : 'Direct calling between free members is not permitted. Upgrade to Premium to unlock calling.');
                         navigate('/plans');
                         return;
                       }
@@ -738,30 +1382,45 @@ const displayUsername = currentUserProfile?.profile?.name
                         photo: activeContact.profile?.photos?.[0] || activeContact.photo || null
                       });
                     }} 
-                    className="hover:text-emerald-600 hover:bg-emerald-50 text-slate-700 transition p-2 rounded-full cursor-pointer relative"
-                    title={isPremium ? "Call Member" : "Upgrade to Call"}
+                    className="hover:text-emerald-600 hover:bg-emerald-50 text-slate-700 transition p-2 rounded-full cursor-pointer relative flex items-center justify-center shrink-0 active:scale-95"
+                    title={canCall ? "Call Member" : (isReceiverPremium ? "Upgrade to call this Premium member" : "Upgrade to Premium to unlock calling")}
+                    aria-label={canCall ? "Call Member" : "Upgrade to Call"}
                   >
-                    {!isPremium && <span className="absolute top-0 right-0 text-[9px]">🔒</span>}
-                    <FontAwesomeIcon icon={faPhone} className="w-4.5 h-4.5" />
+                    {!canCall && <span className="absolute -top-1 -right-1 text-[9px] leading-none select-none">🔒</span>}
+                    <FontAwesomeIcon icon={faPhone} className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
                   </button>
+
+                  {/* Call History Button */}
                   <button 
-                    onClick={async () => {
-                      if (window.confirm("Are you sure you want to block this user?")) {
-                        try {
-                          await api.post(`/users/block/${activeContact._id}`);
-                          alert("User blocked successfully.");
-                          setActiveContact(null);
-                          window.location.reload();
-                        } catch (err) {
-                          console.error("Error blocking user:", err);
-                          alert("Failed to block user.");
-                        }
-                      }
-                    }} 
-                    className="hover:text-rose-500 transition p-2 hover:bg-rose-50 rounded-full cursor-pointer text-xs font-semibold"
-                    title="Block User"
+                    id="chat-call-history-header-btn"
+                    onClick={() => {
+                      setCallHistoryFilterUserId(activeContact?._id);
+                      setShowCallHistoryModal(true);
+                    }}
+                    className="hover:text-[#5D34F7] hover:bg-purple-50 text-slate-700 transition p-2 rounded-full cursor-pointer relative flex items-center justify-center shrink-0 active:scale-95"
+                    title="Call History with this member"
+                    aria-label="Call History with this member"
                   >
-                    Block
+                    <FontAwesomeIcon icon={faClockRotateLeft} className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                  </button>
+
+                  {/* Block User Button */}
+                  <button 
+                    id="chat-block-user-btn"
+                    onClick={handleBlockUser}
+                    disabled={isBlockingUser}
+                    className="hover:text-rose-500 transition px-2.5 py-1.5 hover:bg-rose-50 rounded-full cursor-pointer text-xs font-semibold text-slate-600 shrink-0 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    title="Block User"
+                    aria-label="Block User"
+                  >
+                    {isBlockingUser ? (
+                      <>
+                        <span className="w-3 h-3 border-2 border-rose-500 border-t-transparent rounded-full animate-spin"></span>
+                        <span>Blocking...</span>
+                      </>
+                    ) : (
+                      <span>Block</span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -769,8 +1428,76 @@ const displayUsername = currentUserProfile?.profile?.name
               {/* Chat Messages */}
               <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-white">
                 {loadingMessages && messages.length === 0 ? (
-                  <div className="flex justify-center items-center h-full">
-                    <img src={loadingImg} className="w-12 h-12 animate-spin" alt="Loading..." />
+                  <div className="flex flex-col justify-center items-center h-full text-center py-12">
+                    <img src={loadingImg} className="w-12 h-12 animate-spin mb-3" alt="Loading..." />
+                    <p className="text-slate-400 text-xs font-semibold">Loading conversation...</p>
+                  </div>
+                ) : chatError?.isPermissionError && messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-6 max-w-md mx-auto space-y-4 animate-in fade-in duration-200">
+                    <div className="w-16 h-16 rounded-full bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center text-2xl shadow-sm">
+                      <FontAwesomeIcon icon={faCrown} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <h4 className="text-base font-black text-slate-900">
+                        Subscription Notice
+                      </h4>
+                      <p className="text-slate-600 text-xs font-medium leading-relaxed">
+                        {chatError.message || 'Chat is available only when at least one user has an active premium membership.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/plans')}
+                      className="px-6 py-2.5 bg-gradient-to-r from-[#5D34F7] to-[#4024DB] hover:from-[#4f27e5] hover:to-[#381fcc] text-white font-extrabold text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <FontAwesomeIcon icon={faCrown} className="text-xs" />
+                      <span>View Available Plans</span>
+                    </button>
+                  </div>
+                ) : !loadingMessages && messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-6 max-w-sm mx-auto space-y-4 animate-in fade-in duration-200">
+                    <div className="relative">
+                      <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-slate-200 bg-slate-100 flex items-center justify-center shadow-sm">
+                        {activeContact.profile?.photos && activeContact.profile.photos[0] ? (
+                          <img 
+                            src={getPhotoUrl(activeContact.profile.photos[0], activeContact.profile.gender)} 
+                            alt={activeContact.profile.name || 'Avatar'} 
+                            onError={(e) => handleImageError(e, activeContact.profile.gender)}
+                            className="w-full h-full object-cover" 
+                          />
+                        ) : (
+                          <img 
+                            src={getDefaultAvatar(activeContact.profile?.gender)} 
+                            alt="Avatar" 
+                            className="w-full h-full object-cover" 
+                          />
+                        )}
+                      </div>
+                      <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <h4 className="text-base font-black text-slate-900">
+                        {activeContact.profile?.name || 'Matrimony Member'}
+                      </h4>
+                      <p className="text-slate-500 text-xs font-semibold">
+                        You are connected! Say hello to start the conversation.
+                      </p>
+                    </div>
+
+                    {/* Quick suggestion chips */}
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                      {['Namaste! 🙏', 'Hello! Nice to connect with you. 😊', 'Hi there! 👋'].map((greeting, gIdx) => (
+                        <button
+                          key={gIdx}
+                          type="button"
+                          onClick={() => setInputText(greeting)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-[#5D34F7]/10 hover:text-[#5D34F7] text-slate-700 text-xs font-bold rounded-full transition cursor-pointer border border-slate-200/70 active:scale-95"
+                        >
+                          {greeting}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   messages.map((msg, index) => {
@@ -897,6 +1624,26 @@ const displayUsername = currentUserProfile?.profile?.name
 
               {/* Chat Input Bar */}
               <div className="p-4 bg-white border-t border-slate-200 shrink-0 relative">
+                {/* Permission error warning if there were existing messages but neither user has active plan */}
+                {chatError?.isPermissionError && messages.length > 0 && (
+                  <div className="mb-3 p-3 bg-amber-50/90 border border-amber-200/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-2.5 text-amber-900 text-xs animate-in fade-in duration-150">
+                    <div className="flex items-center gap-2">
+                      <FontAwesomeIcon icon={faLock} className="text-amber-600 text-xs shrink-0" />
+                      <span className="font-medium">
+                        Sending replies requires an active membership when neither member is on a premium plan.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/plans')}
+                      className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                    >
+                      <FontAwesomeIcon icon={faCrown} className="text-[10px]" />
+                      <span>Upgrade Plan</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Emoji Picker Popover */}
                 {showEmojiPicker && (
                   <div className="absolute bottom-16 left-4 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl grid grid-cols-5 gap-2 z-50 animate-in fade-in zoom-in-95 duration-100">
@@ -1035,7 +1782,34 @@ const displayUsername = currentUserProfile?.profile?.name
                   className="hidden" 
                 />
 
-                <form onSubmit={handleSendMessage} className="relative flex items-center border border-slate-200 rounded-full px-3 sm:px-4 py-2 bg-white shadow-sm focus-within:border-slate-400 transition-all">
+                {!canChat ? (
+                  <div className="p-4 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border border-amber-200/80 rounded-2xl shadow-xs text-center space-y-2.5 my-1">
+                    <div className="flex items-center justify-center gap-2 text-amber-900 font-extrabold text-xs sm:text-sm">
+                      <FontAwesomeIcon icon={faLock} className="text-amber-600" />
+                      <span>Chat Blocked on Free Accounts</span>
+                    </div>
+                    <p className="text-xs text-amber-800 leading-relaxed max-w-lg mx-auto">
+                      Direct messaging between two Free accounts is not allowed. To chat with this member, at least one of you must have an active Premium membership.
+                    </p>
+                    <div className="pt-1 flex items-center justify-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => navigate('/plans')}
+                        className="px-5 py-2 bg-gradient-to-r from-[#5D34F7] to-[#4024DB] hover:opacity-95 text-white text-xs font-black rounded-xl shadow-md transition cursor-pointer active:scale-95"
+                      >
+                        Upgrade to Premium
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/membership-plans')}
+                        className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                      >
+                        Compare Plans
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSendMessage} className="relative flex items-center border border-slate-200 rounded-full px-3 sm:px-4 py-2 bg-white shadow-sm focus-within:border-slate-400 transition-all">
                   
                   {isRecording ? (
                     // Recording voice message status bar
@@ -1204,19 +1978,26 @@ const displayUsername = currentUserProfile?.profile?.name
                     </>
                   )}
                 </form>
+                )}
               </div>
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-4 bg-white">
-              <div className="w-20 h-20 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400">
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-                </svg>
-              </div>
-              <h3 className="font-black text-lg text-slate-800 tracking-tight">No messages</h3>
-              <p className="text-slate-450 text-xs font-semibold max-w-xs leading-relaxed">
-                Select a contact from the list or send interests to start a conversation.
-              </p>
+            <div className="w-full h-full flex items-center justify-center p-6 bg-slate-50/50">
+              <EmptyState
+                type="messages"
+                title="Select a Conversation"
+                description="Choose a conversation from the left contacts list to view message history, reply, or start voice and video calls."
+                badgeText="Direct Chat"
+                suggestions={[
+                  'Chat directly with mutual connections and interested members',
+                  'Share photos, documents, and interactive greetings',
+                  'Initiate high-quality audio or video calls directly in browser'
+                ]}
+                actionText="Discover Matches"
+                onAction={() => navigate('/preference-matches')}
+                secondaryActionText="View Connection Requests"
+                onSecondaryAction={() => navigate('/notifications')}
+              />
             </div>
           )}
         </div>
@@ -1225,96 +2006,235 @@ const displayUsername = currentUserProfile?.profile?.name
 
       {/* Real Agora Calling Modal Overlay */}
       {activeCall && activeContact && (
-        <div className="fixed inset-0 bg-slate-950/95 flex flex-col items-center justify-center z-[999] text-white animate-fade-in duration-300">
+        <div className="fixed inset-0 bg-slate-950/95 flex flex-col justify-between z-[999] text-white animate-fade-in duration-300 overflow-hidden select-none">
+          {/* Top Status Header: Participant info, Duration timer, Call type - Permanently Visible */}
+          <div className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 z-[1001] max-w-lg w-[92%] sm:w-auto min-w-[280px] flex items-center justify-between gap-4 bg-slate-900/85 backdrop-blur-xl px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl border border-white/15 shadow-2xl pointer-events-auto">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/20 bg-slate-800 shrink-0 flex items-center justify-center shadow-sm">
+                {activeContact.profile?.photos?.[0] ? (
+                  <img 
+                    src={getPhotoUrl(activeContact.profile.photos[0], activeContact.profile.gender)} 
+                    alt={activeContact.profile?.name || 'Avatar'} 
+                    onError={(e) => handleImageError(e, activeContact.profile.gender)}
+                    className="w-full h-full object-cover" 
+                  />
+                ) : (
+                  <FontAwesomeIcon icon={faUser} className="text-white/60 text-sm" />
+                )}
+              </div>
+              <div className="text-left">
+                <h3 className="font-extrabold text-sm text-white tracking-tight truncate max-w-[150px] sm:max-w-[220px]">
+                  {activeContact.profile?.name || 'Matrimony Member'}
+                </h3>
+                <p className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block shrink-0" />
+                  <span>
+                    {isInCall ? formatDuration(callDuration) : `${activeCall === 'video' ? 'Video' : 'Voice'} Calling...`}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/10 text-white/90 border border-white/15 shadow-xs shrink-0">
+              {activeCall === 'video' ? 'HD Video' : 'HD Voice'}
+            </span>
+          </div>
+
+          {/* Call Screen Center: Video streams or Voice Call profile display */}
           {isInCall && activeCall === 'video' ? (
             <div className="relative w-full h-full flex items-center justify-center">
               {/* Remote Video Container */}
               <div id="remote-video-container" className="w-full h-full bg-slate-900 flex items-center justify-center">
                 {!remoteUserJoined && (
-                  <div className="flex flex-col items-center space-y-4">
-                    <div className="w-24 h-24 rounded-full overflow-hidden border border-slate-750 bg-slate-800 flex items-center justify-center">
+                  <div className="flex flex-col items-center space-y-4 px-4 text-center">
+                    <div className="w-24 h-24 rounded-full overflow-hidden border border-slate-750 bg-slate-800 flex items-center justify-center shadow-lg">
                       {activeContact.profile?.photos?.[0] ? (
-                        <img src={getPhotoUrl(activeContact.profile.photos[0])} alt="Avatar" className="w-full h-full object-cover" />
+                        <img 
+                          src={getPhotoUrl(activeContact.profile.photos[0], activeContact.profile.gender)} 
+                          alt="Avatar" 
+                          onError={(e) => handleImageError(e, activeContact.profile.gender)}
+                          className="w-full h-full object-cover" 
+                        />
                       ) : (
-                        <FontAwesomeIcon icon={faUser} className="text-3xl text-slate-500" />
+                        <img 
+                          src={getDefaultAvatar(activeContact.profile?.gender)} 
+                          alt="Avatar" 
+                          className="w-full h-full object-cover" 
+                        />
                       )}
                     </div>
-                    <p className="text-sm font-semibold tracking-wide text-slate-400">Waiting for {activeContact.profile?.name} to connect video...</p>
+                    <p className="text-sm font-semibold tracking-wide text-slate-300">
+                      Waiting for {activeContact.profile?.name || 'member'} to connect video...
+                    </p>
                   </div>
                 )}
               </div>
               
               {/* Local Video Picture-in-Picture */}
-              <div id="local-video-container" className="absolute top-6 right-6 w-32 h-44 bg-slate-800 rounded-2xl overflow-hidden border-2 border-white/90 shadow-2xl z-20">
+              <div id="local-video-container" className="absolute top-20 sm:top-24 right-4 sm:right-6 w-28 sm:w-36 h-38 sm:h-48 bg-slate-800 rounded-2xl overflow-hidden border-2 border-white/90 shadow-2xl z-20">
                 {isVideoDisabled && (
-                  <div className="w-full h-full bg-slate-800 flex items-center justify-center">
-                    <span className="text-xl">📷❌</span>
+                  <div className="w-full h-full bg-slate-800 flex flex-col items-center justify-center gap-1 text-slate-400">
+                    <FontAwesomeIcon icon={faVideoSlash} className="text-xl text-red-400" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Camera Off</span>
                   </div>
                 )}
               </div>
             </div>
           ) : (
-            <div className="relative flex flex-col items-center space-y-8 max-w-md w-full px-6">
-              <div className="relative">
-                <div className="absolute inset-0 bg-sky-500 rounded-full animate-ping opacity-30"></div>
+            <div className="relative flex flex-col items-center justify-center flex-1 w-full px-6 py-24">
+              <div className="relative mb-6">
+                <div className="absolute inset-0 bg-[#5D34F7] rounded-full animate-ping opacity-25"></div>
                 <div className="absolute -inset-4 bg-sky-400 rounded-full animate-pulse opacity-20"></div>
-                <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-2xl relative z-10 bg-slate-800 flex items-center justify-center">
+                <div className="w-32 h-32 sm:w-36 sm:h-36 rounded-full overflow-hidden border-4 border-white/90 shadow-2xl relative z-10 bg-slate-800 flex items-center justify-center">
                   {activeContact.profile?.photos?.[0] ? (
-                    <img src={getPhotoUrl(activeContact.profile.photos[0])} alt="Avatar" className="w-full h-full object-cover" />
+                    <img 
+                      src={getPhotoUrl(activeContact.profile.photos[0], activeContact.profile.gender)} 
+                      alt="Avatar" 
+                      onError={(e) => handleImageError(e, activeContact.profile.gender)}
+                      className="w-full h-full object-cover" 
+                    />
                   ) : (
-                    <FontAwesomeIcon icon={faUser} className="text-4xl text-slate-400" />
+                    <img 
+                      src={getDefaultAvatar(activeContact.profile?.gender)} 
+                      alt="Avatar" 
+                      className="w-full h-full object-cover" 
+                    />
                   )}
                 </div>
               </div>
               
-              <div className="text-center">
-                <h2 className="text-2xl font-bold tracking-wide">{activeContact.profile?.name || 'Matrimony Member'}</h2>
-                <p className="text-sky-400 text-sm mt-3 animate-bounce font-medium uppercase tracking-widest">
-                  {isInCall ? 'In active call' : `${activeCall} calling...`}
+              <div className="text-center space-y-2">
+                <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+                  {activeContact.profile?.name || 'Matrimony Member'}
+                </h2>
+                <p className="text-emerald-400 text-sm font-bold tracking-wider uppercase flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>{isInCall ? `Active Call • ${formatDuration(callDuration)}` : `${activeCall === 'video' ? 'Video' : 'Voice'} Calling...`}</span>
                 </p>
               </div>
             </div>
           )}
 
-          {/* Call Controls Overlay Bar */}
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-8 z-30 bg-white/10 backdrop-blur-md px-8 py-4 rounded-full border border-white/20 shadow-2xl">
-            <button 
-              onClick={handleToggleMute}
-              className={`w-12 h-12 rounded-full transition flex items-center justify-center text-lg cursor-pointer ${
-                isMuted ? 'bg-red-500 text-white' : 'bg-slate-800 text-white hover:bg-slate-700'
-              }`}
-            >
-              {isMuted ? '🔇' : '🎙️'}
-            </button>
-            <button 
-              onClick={handleEndCall}
-              className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-90 transition flex items-center justify-center text-2xl shadow-xl cursor-pointer"
-            >
-              🛑
-            </button>
-            {activeCall === 'video' && (
-              <button 
-                onClick={handleToggleVideo}
-                className={`w-12 h-12 rounded-full transition flex items-center justify-center text-lg cursor-pointer ${
-                  isVideoDisabled ? 'bg-red-500 text-white' : 'bg-slate-800 text-white hover:bg-slate-700'
-                }`}
-              >
-                {isVideoDisabled ? '📷❌' : '📹'}
-              </button>
-            )}
+          {/* Call Controls Dock - PERMANENTLY VISIBLE THROUGHOUT ACTIVE CALL */}
+          <div 
+            className="fixed bottom-6 sm:bottom-10 left-1/2 -translate-x-1/2 z-[1001] flex items-center justify-center pointer-events-auto select-none max-w-full px-4"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+          >
+            <div className="flex items-center gap-3 sm:gap-6 bg-slate-900/90 backdrop-blur-2xl px-5 sm:px-8 py-3.5 sm:py-4 rounded-3xl border border-white/20 shadow-2xl ring-1 ring-white/10">
+              {/* Microphone Mute/Unmute */}
+              <div className="flex flex-col items-center gap-1.5">
+                <button 
+                  type="button"
+                  onClick={handleToggleMute}
+                  className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl sm:rounded-3xl transition-all duration-200 flex items-center justify-center text-lg sm:text-xl cursor-pointer active:scale-95 shadow-md ${
+                    isMuted 
+                      ? 'bg-red-500 hover:bg-red-600 text-white ring-2 ring-red-400/50 shadow-red-500/30' 
+                      : 'bg-white/12 hover:bg-white/20 text-white border border-white/15'
+                  }`}
+                  title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+                  aria-label={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+                >
+                  <FontAwesomeIcon icon={isMuted ? faMicrophoneSlash : faMicrophone} />
+                </button>
+                <span className="text-[10px] font-bold tracking-wider uppercase text-white/70">
+                  {isMuted ? 'Muted' : 'Mic'}
+                </span>
+              </div>
+
+              {/* Camera On/Off (only if user plan supports video calling and call is video) */}
+              {activeCall === 'video' && hasVideoCallingAccess && (
+                <div className="flex flex-col items-center gap-1.5">
+                  <button 
+                    type="button"
+                    onClick={handleToggleVideo}
+                    className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl sm:rounded-3xl transition-all duration-200 flex items-center justify-center text-lg sm:text-xl cursor-pointer active:scale-95 shadow-md ${
+                      isVideoDisabled 
+                        ? 'bg-red-500 hover:bg-red-600 text-white ring-2 ring-red-400/50 shadow-red-500/30' 
+                        : 'bg-white/12 hover:bg-white/20 text-white border border-white/15'
+                    }`}
+                    title={isVideoDisabled ? 'Turn Camera On' : 'Turn Camera Off'}
+                    aria-label={isVideoDisabled ? 'Turn Camera On' : 'Turn Camera Off'}
+                  >
+                    <FontAwesomeIcon icon={isVideoDisabled ? faVideoSlash : faVideo} />
+                  </button>
+                  <span className="text-[10px] font-bold tracking-wider uppercase text-white/70">
+                    {isVideoDisabled ? 'Cam Off' : 'Camera'}
+                  </span>
+                </div>
+              )}
+
+              {/* Camera Switch Option (only if user plan supports video calling and call is video) */}
+              {activeCall === 'video' && hasVideoCallingAccess && (
+                <div className="flex flex-col items-center gap-1.5">
+                  <button 
+                    type="button"
+                    onClick={handleSwitchCamera}
+                    className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl sm:rounded-3xl transition-all duration-200 flex items-center justify-center text-lg sm:text-xl cursor-pointer active:scale-95 shadow-md bg-white/12 hover:bg-white/20 text-white border border-white/15"
+                    title="Switch Camera (Flip Front/Back)"
+                    aria-label="Switch Camera"
+                  >
+                    <FontAwesomeIcon icon={faSync} />
+                  </button>
+                  <span className="text-[10px] font-bold tracking-wider uppercase text-white/70">
+                    Switch
+                  </span>
+                </div>
+              )}
+
+              {/* Speaker / Audio Output Toggle */}
+              <div className="flex flex-col items-center gap-1.5">
+                <button 
+                  type="button"
+                  onClick={handleToggleSpeaker}
+                  className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl sm:rounded-3xl transition-all duration-200 flex items-center justify-center text-lg sm:text-xl cursor-pointer active:scale-95 shadow-md ${
+                    isSpeakerMuted 
+                      ? 'bg-red-500 hover:bg-red-600 text-white ring-2 ring-red-400/50 shadow-red-500/30' 
+                      : 'bg-white/12 hover:bg-white/20 text-white border border-white/15'
+                  }`}
+                  title={isSpeakerMuted ? 'Unmute Speaker' : 'Mute Speaker'}
+                  aria-label={isSpeakerMuted ? 'Unmute Speaker' : 'Mute Speaker'}
+                >
+                  <FontAwesomeIcon icon={isSpeakerMuted ? faVolumeMute : faVolumeUp} />
+                </button>
+                <span className="text-[10px] font-bold tracking-wider uppercase text-white/70">
+                  {isSpeakerMuted ? 'Muted' : 'Speaker'}
+                </span>
+              </div>
+
+              {/* End Call Button */}
+              <div className="flex flex-col items-center gap-1.5">
+                <button 
+                  type="button"
+                  onClick={handleEndCall}
+                  className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl bg-rose-600 hover:bg-rose-700 active:scale-90 transition-all duration-200 flex items-center justify-center text-xl sm:text-2xl shadow-xl shadow-rose-600/40 border border-rose-400/30 ring-4 ring-rose-500/25 cursor-pointer text-white"
+                  title="End Call"
+                  aria-label="End Call"
+                >
+                  <FontAwesomeIcon icon={faPhoneSlash} />
+                </button>
+                <span className="text-[10px] font-extrabold tracking-wider uppercase text-rose-400">
+                  End Call
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* Incoming Call Overlay */}
       {incomingCall && (
-        <div className="fixed inset-0 bg-slate-950/95 flex flex-col items-center justify-center z-[999] text-white animate-fade-in duration-300">
+        <div className="fixed inset-0 bg-slate-950/95 flex flex-col items-center justify-center z-[999] text-white animate-fade-in duration-300 select-none">
           <div className="relative flex flex-col items-center space-y-8 max-w-md w-full px-6">
             <div className="relative">
               <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-30"></div>
               <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-2xl relative z-10 bg-slate-800 flex items-center justify-center">
                 {incomingCall.caller?.profile?.photos?.[0] ? (
-                  <img src={getPhotoUrl(incomingCall.caller.profile.photos[0])} alt="Avatar" className="w-full h-full object-cover" />
+                  <img 
+                    src={getPhotoUrl(incomingCall.caller.profile.photos[0], incomingCall.caller.profile?.gender)} 
+                    alt="Avatar" 
+                    onError={(e) => handleImageError(e, incomingCall.caller.profile?.gender)}
+                    className="w-full h-full object-cover" 
+                  />
                 ) : (
                   <FontAwesomeIcon icon={faUser} className="text-4xl text-slate-400" />
                 )}
@@ -1324,22 +2244,26 @@ const displayUsername = currentUserProfile?.profile?.name
             <div className="text-center">
               <h2 className="text-2xl font-bold tracking-wide">{incomingCall.caller?.profile?.name || 'Incoming Call'}</h2>
               <p className="text-emerald-400 text-sm mt-3 animate-bounce font-medium uppercase tracking-widest">
-                Incoming `${incomingCall.isVideoCall ? 'Video' : 'Voice'}` Call...
+                Incoming {incomingCall.isVideoCall ? 'Video' : 'Voice'} Call...
               </p>
             </div>
 
-            <div className="flex items-center gap-8 mt-12 z-30">
+            <div className="flex items-center gap-8 mt-8 z-30">
               <button 
+                type="button"
                 onClick={handleDeclineCall}
-                className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 active:scale-90 transition flex items-center justify-center text-xl shadow-xl cursor-pointer"
+                className="px-6 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-95 transition-all flex items-center gap-2.5 font-bold text-sm shadow-xl shadow-rose-600/30 border border-rose-400/30 cursor-pointer"
               >
-                🛑 Decline
+                <FontAwesomeIcon icon={faPhoneSlash} className="text-base" />
+                <span>Decline</span>
               </button>
               <button 
+                type="button"
                 onClick={handleAcceptCall}
-                className="w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-600 active:scale-90 transition flex items-center justify-center text-xl shadow-xl cursor-pointer"
+                className="px-6 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all flex items-center gap-2.5 font-bold text-sm shadow-xl shadow-emerald-600/30 border border-emerald-400/30 cursor-pointer"
               >
-                📞 Accept
+                <FontAwesomeIcon icon={faPhone} className="text-base" />
+                <span>Accept</span>
               </button>
             </div>
           </div>
@@ -1371,12 +2295,17 @@ const displayUsername = currentUserProfile?.profile?.name
                 <div className="flex-1 flex items-center justify-center relative rounded-2xl overflow-hidden bg-slate-950 md:h-[400px]">
                   {activePreviewImage ? (
                     <img
-                      src={getPhotoUrl(activePreviewImage)}
-                      alt={p.name}
+                      src={getPhotoUrl(activePreviewImage, p.gender)}
+                      alt={p.name || 'Member'}
+                      onError={(e) => handleImageError(e, p.gender)}
                       className="w-full h-full object-contain"
                     />
                   ) : (
-                    <FontAwesomeIcon icon={faUser} className="text-[#5D34F7]/20 text-7xl" />
+                    <img 
+                      src={getDefaultAvatar(p.gender)} 
+                      alt={p.name || 'Member'} 
+                      className="w-full h-full object-contain opacity-90 p-8" 
+                    />
                   )}
                 </div>
 
@@ -1391,7 +2320,12 @@ const displayUsername = currentUserProfile?.profile?.name
                             : 'border-transparent hover:border-slate-300'
                           }`}
                       >
-                        <img src={getPhotoUrl(photo)} alt="" className="w-full h-full object-cover" />
+                        <img 
+                          src={getPhotoUrl(photo, p.gender)} 
+                          alt="" 
+                          onError={(e) => handleImageError(e, p.gender)}
+                          className="w-full h-full object-cover" 
+                        />
                       </button>
                     ))}
                   </div>
@@ -1422,7 +2356,19 @@ const displayUsername = currentUserProfile?.profile?.name
                         );
                       })()}
                     </div>
-                    <div className="flex items-center gap-4 mt-1">
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      {previewContact.online ? (
+                        <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>Online</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 border border-slate-200 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                          <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                          <span>{previewContact.lastActiveLabel || 'Offline'}</span>
+                        </span>
+                      )}
+                      <span className="text-slate-300">•</span>
                       <p className="text-slate-400 text-xs font-bold flex items-center gap-1">
                         <FontAwesomeIcon icon={faMapMarkerAlt} className="text-[#5D34F7]" />
                         {p.location || 'Location N/A'}
@@ -1462,18 +2408,58 @@ const displayUsername = currentUserProfile?.profile?.name
                                 📞 {previewContact.phone || p.phone}
                               </p>
                             </div>
-                            <button
-                              onClick={() => setCallModalData({
-                                isOpen: true,
-                                phone: previewContact.phone || p.phone,
-                                name: p.name || 'Member',
-                                photo: p.photos?.[0] || null
-                              })}
-                              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0"
-                            >
-                              <FontAwesomeIcon icon={faPhone} className="text-xs" />
-                              <span>Call</span>
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={() => setCallModalData({
+                                  isOpen: true,
+                                  phone: previewContact.phone || p.phone,
+                                  name: p.name || 'Member',
+                                  photo: p.photos?.[0] || null
+                                })}
+                                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+                              >
+                                <FontAwesomeIcon icon={faPhone} className="text-xs" />
+                                <span>Call</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPreviewContact(null);
+                                  if (!hasVideoCallingAccess) {
+                                    navigate('/plans');
+                                    return;
+                                  }
+                                  if (previewContact.settings?.allowVoiceAndVideoCalls === false) {
+                                    alert('This member has disabled incoming calls.');
+                                    return;
+                                  }
+                                  handleInitiateCall('video');
+                                }}
+                                className={`px-3 py-2 font-black text-xs rounded-xl transition flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer ${
+                                  hasVideoCallingAccess
+                                    ? 'bg-[#5D34F7] hover:bg-[#4d27d9] text-white'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-500 border border-slate-200'
+                                }`}
+                                title={
+                                  hasVideoCallingAccess 
+                                    ? "Start Video Call" 
+                                    : (currentUserProfile?.premiumMembership?.isPremium 
+                                        ? "Video calling is not included in your current plan (Requires Diamond or Platinum). Click to upgrade." 
+                                        : "Upgrade to Video Call")
+                                }
+                              >
+                                {!hasVideoCallingAccess ? (
+                                  <>
+                                    <span className="text-xs">🔒</span>
+                                    <span>Video Call</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <FontAwesomeIcon icon={faVideo} className="text-xs" />
+                                    <span>Video Call</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
                           </>
                         )}
                       </div>
@@ -1521,13 +2507,14 @@ const displayUsername = currentUserProfile?.profile?.name
                       </div>
                     </div>
 
-                    {(p.motherStatus || p.fatherStatus || p.familyFinancialStatus) && (
+                    {(p.motherStatus || p.fatherStatus || p.familyFinancialStatus || p.brothersCount !== undefined || p.sistersCount !== undefined || p.siblings !== undefined) && (
                       <div>
                         <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider mb-2">Family</h4>
                         <div className="grid grid-cols-2 gap-4 text-xs font-bold text-slate-650 bg-slate-50/50 p-4 rounded-2xl border border-slate-100/50">
                           {p.fatherStatus && <div><span className="text-slate-400 text-[10px] block mb-0.5">FATHER STATUS</span>{p.fatherStatus}</div>}
                           {p.motherStatus && <div><span className="text-slate-400 text-[10px] block mb-0.5">MOTHER STATUS</span>{p.motherStatus}</div>}
                           {p.familyFinancialStatus && <div className="col-span-2"><span className="text-slate-400 text-[10px] block mb-0.5">FINANCIAL STATUS</span>{p.familyFinancialStatus}</div>}
+                          <div className="col-span-2"><span className="text-slate-400 text-[10px] block mb-0.5">SIBLINGS</span>{formatSiblings(p)}</div>
                           {p.brothersCount !== undefined && <div><span className="text-slate-400 text-[10px] block mb-0.5">BROTHERS</span>{p.brothersCount}</div>}
                           {p.sistersCount !== undefined && <div><span className="text-slate-400 text-[10px] block mb-0.5">SISTERS</span>{p.sistersCount}</div>}
                         </div>
@@ -1547,6 +2534,34 @@ const displayUsername = currentUserProfile?.profile?.name
         phone={callModalData.phone}
         name={callModalData.name}
         photo={callModalData.photo}
+      />
+
+      {/* Call History Modal */}
+      <CallHistoryModal
+        isOpen={showCallHistoryModal}
+        onClose={() => setShowCallHistoryModal(false)}
+        currentUser={currentUserProfile}
+        filterUserId={callHistoryFilterUserId}
+        hasVideoCallingAccess={hasVideoCallingAccess}
+        onInitiateCall={(targetContact, callType) => {
+          if (callType === 'video' && !hasVideoCallingAccess) {
+            navigate('/plans');
+            return;
+          }
+          const fullContact = contacts.find(c => String(c._id) === String(targetContact._id)) || targetContact;
+          setActiveContact(fullContact);
+          setTimeout(() => {
+            if (callType === 'video') {
+              handleInitiateCall('video');
+            } else {
+              handleInitiateCall('voice');
+            }
+          }, 150);
+        }}
+        onSelectContact={(targetContact) => {
+          const existing = contacts.find(c => String(c._id) === String(targetContact._id));
+          setActiveContact(existing || targetContact);
+        }}
       />
     </>
   );

@@ -1,18 +1,38 @@
 import { useState, useEffect } from 'react';
-import api, { getPhotoUrl } from '../api/axios';
+import api, { getPhotoUrl, getDefaultAvatar, handleImageError } from '../api/axios';
 import { LocationService } from '../api/locationService';
 import { COUNTRY_PHONE_STANDARDS, validatePhoneNumber } from '../api/phoneStandards';
 import {
   User, Mail, Phone, Calendar, Landmark, MapPin,
-  GraduationCap, Briefcase, Heart, Edit2, Check, X, Camera, Plus, Trash2, LogOut, Users, Sliders,
-  ChevronRight, Home, BookOpen, Activity, Info, Share2, Download, Sparkles, BadgeCheck
+  GraduationCap, Briefcase, Heart, Edit2, Check, Copy, X, Camera, Plus, Trash2, LogOut, Users, Sliders,
+  ChevronRight, ChevronDown, ChevronUp, ArrowLeft, ArrowRight, Search, Loader2, Home, BookOpen, Activity, Info, Share2, Download, Sparkles, BadgeCheck, FileText, Scale, ShieldCheck,
+  CheckCircle2, Clock, XCircle, ShieldAlert, AlertCircle, Lock, Star, Languages, Globe, Baby
 } from 'lucide-react';
 import ShareModal from '../components/ShareModal';
 import CallModal from '../components/CallModal';
 import ContactInfoCard from '../components/ContactInfoCard';
+import PhotoVerifiedBadge from '../components/PhotoVerifiedBadge';
+import FullScreenImageViewer from '../components/FullScreenImageViewer';
+import VipConsultantModal from '../components/VipConsultantModal';
+import VipShaadiModal from '../components/VipShaadiModal';
 import { getCachedUnlockedContacts, syncContactedProfiles } from '../utils/contactManager';
+import {
+  formatProfileCreatedBy,
+  formatSiblings,
+  formatChildrenDisplay,
+  isPhotoVerified,
+  getPhotoVerificationStatus,
+  ALL_SPOKEN_LANGUAGES,
+  formatLanguages,
+  getLanguagesList,
+  CHILDREN_FILTER_OPTIONS,
+  normalizeChildrenForBackend,
+  normalizeChildrenFromBackend,
+  isZeroOrNoChildren
+} from '../utils/profileHelpers';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import loadingImg from '../assets/loading.png';
+import { fetchCommunitiesData, getSubCommunityOptions } from '../utils/communityService';
 
 const ALL_GENDERS = ['Male', 'Female'];
 const ALL_RELIGIONS = [
@@ -54,9 +74,20 @@ const ALL_WORK_SECTORS = [
 const ALL_FINANCIAL_STATUSES = [
   'Elite', 'Ultra Rich', 'Rich', 'High', 'Middle', 'Upper Middle', 'Middle Class', 'Aspiring'
 ];
+const HOBBIES_CATEGORIES = [
+  { title: '🎨 Creative', items: ['Art', 'Painting', 'Music', 'Singing', 'Playing Instrument', 'Writing', 'Photography', 'Dancing', 'Acting', 'Cooking', 'Crafts'] },
+  { title: '🎮 Fun', items: ['Movies', 'Gaming', 'Traveling', 'Comedy', 'Concerts', 'Dining Out', 'Watching Sports', 'Board Games', 'Socializing'] },
+  { title: '💪 Fitness', items: ['Gym', 'Yoga', 'Running', 'Sports', 'Cycling', 'Swimming', 'Trekking', 'Martial Arts', 'Aerobics'] },
+  { title: '📚 Other', items: ['Reading', 'Pets', 'Gardening', 'Volunteering', 'Blogging', 'Astrology', 'Tech/Gadgets', 'Podcasts'] }
+];
 const ALL_COLLEGES = [
   'IIT Bombay', 'IIT Delhi', 'IIT Madras', 'BITS Pilani', 'NIT Trichy', 'IIM Ahmedabad', 'IIM Bangalore',
   'Delhi University (DU)', 'Harvard University', 'Stanford University', 'MIT', 'Oxford University', 'Other'
+];
+const ALL_COMMUNITIES = [
+  'Hindi', 'Marathi', 'Punjabi', 'Bengali', 'Gujarati', 'Urdu', 'Telugu', 'Kannada',
+  'English', 'Tamil', 'Odia', 'Marwari', 'Assamese', 'Bhojpuri', 'Malayalam', 'Konkani',
+  'Kashmiri', 'Sindhi', 'Nepali', 'Rajasthani', 'Maithili', 'Tulu', 'Other'
 ];
 
 const RELIGION_CASTES_MAP = {
@@ -151,8 +182,9 @@ const INDIA_CITIES_BY_STATE = {
 // Edit categories definition
 const EDIT_CATEGORIES = [
   { id: 'basic', label: 'Basic Info', iconName: 'User', color: '#FF477E', bg: 'bg-rose-50', text: 'text-rose-500' },
+  { id: 'languages', label: 'Spoken Languages', iconName: 'Languages', color: '#0EA5E9', bg: 'bg-sky-50', text: 'text-sky-600' },
   { id: 'religion', label: 'Religion & Caste', iconName: 'Landmark', color: '#F9C74F', bg: 'bg-amber-50', text: 'text-amber-600' },
-  { id: 'location', label: 'Location', iconName: 'MapPin', color: '#4895EF', bg: 'bg-blue-50', text: 'text-blue-500' },
+  { id: 'location', label: 'Location & Birth Details', iconName: 'MapPin', color: '#4895EF', bg: 'bg-blue-50', text: 'text-blue-500' },
   { id: 'education', label: 'Education & Career', iconName: 'GraduationCap', color: '#7209B7', bg: 'bg-purple-50', text: 'text-purple-600' },
   { id: 'lifestyle', label: 'Physical & Lifestyle', iconName: 'Heart', color: '#4CC9F0', bg: 'bg-cyan-50', text: 'text-cyan-600' },
   { id: 'hobbies', label: 'Hobbies & Interests', iconName: 'Sliders', color: '#5D34F7', bg: 'bg-indigo-50', text: 'text-indigo-600' },
@@ -164,6 +196,8 @@ const EDIT_CATEGORIES = [
 function CategoryIcon({ name, color, className = "w-4 h-4" }) {
   const iconMap = {
     User: User,
+    Languages: Languages,
+    Globe: Globe,
     Landmark: Landmark,
     MapPin: MapPin,
     GraduationCap: GraduationCap,
@@ -177,42 +211,105 @@ function CategoryIcon({ name, color, className = "w-4 h-4" }) {
   return <IconComponent className={className} style={{ color }} />;
 }
 
-function ChipSelector({ options, selected, onChange, title }) {
+function ChipSelector({ options, selected = [], onChange, title }) {
   const [search, setSearch] = useState('');
   const [showAll, setShowAll] = useState(false);
 
-  const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
+  // Filter concrete options (excluding 'No Preference')
+  const concreteOptions = options.filter(opt => opt !== 'No Preference');
+  const isNoPreferenceSelected = selected.includes('No Preference');
+  
+  // Check if all concrete options are selected
+  const isAllSelected = concreteOptions.length > 0 && concreteOptions.every(opt => selected.includes(opt));
+
+  const handleSelectAllToggle = () => {
+    if (isAllSelected) {
+      // Deselect all
+      onChange([]);
+    } else {
+      // Feature 5: Select every available option without selecting "No Preference"
+      onChange([...concreteOptions]);
+    }
+  };
+
+  const handleNoPreferenceToggle = () => {
+    if (isNoPreferenceSelected) {
+      onChange([]);
+    } else {
+      // "No Preference" stands alone as a separate option
+      onChange(['No Preference']);
+    }
+  };
+
+  const handleOptionToggle = (option) => {
+    if (option === 'No Preference') {
+      handleNoPreferenceToggle();
+      return;
+    }
+    // Selecting any concrete option automatically removes "No Preference"
+    const withoutNoPref = selected.filter(x => x !== 'No Preference');
+    if (withoutNoPref.includes(option)) {
+      onChange(withoutNoPref.filter(x => x !== option));
+    } else {
+      onChange([...withoutNoPref, option]);
+    }
+  };
+
+  const filtered = concreteOptions.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
   const visible = showAll ? filtered : filtered.slice(0, 8);
   const hasMore = filtered.length > 8;
 
   return (
     <div className="space-y-3">
-      {options.length > 8 && (
-        <input
-          type="text"
-          placeholder={`Search ${title}...`}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full max-w-xs px-4 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent bg-white shadow-sm"
-        />
-      )}
+      {/* Header controls: Search and Select All / Deselect All */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {options.length > 8 ? (
+          <input
+            type="text"
+            placeholder={`Search ${title}...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full max-w-xs px-3.5 py-1.5 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent bg-white shadow-2xs"
+          />
+        ) : <div />}
+
+        <div className="flex items-center gap-3 ml-auto">
+          {/* Feature 5: Select All / Deselect All button */}
+          <button
+            type="button"
+            onClick={handleSelectAllToggle}
+            className="text-xs text-[#5D34F7] hover:text-[#4024DB] font-bold hover:underline bg-transparent border-0 cursor-pointer transition"
+          >
+            {isAllSelected ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-2">
+        {/* "No Preference" remains a separate independent option */}
+        <button
+          type="button"
+          onClick={handleNoPreferenceToggle}
+          className={`px-3.5 py-2 rounded-xl border text-xs font-bold transition-all duration-200 cursor-pointer ${
+            isNoPreferenceSelected
+              ? 'border-indigo-600 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200/50 shadow-sm'
+              : 'border-slate-200 bg-slate-50/70 text-slate-600 hover:border-slate-300'
+          }`}
+          title="Open to all without specific preference"
+        >
+          No Preference
+        </button>
+
         {visible.map(option => {
           const isSelected = selected.includes(option);
           return (
             <button
               key={option}
               type="button"
-              onClick={() => {
-                if (isSelected) {
-                  onChange(selected.filter(x => x !== option));
-                } else {
-                  onChange([...selected, option]);
-                }
-              }}
-              className={`px-4 py-2 rounded-xl border text-xs font-semibold transition-all duration-200 cursor-pointer ${
+              onClick={() => handleOptionToggle(option)}
+              className={`px-3.5 py-2 rounded-xl border text-xs font-semibold transition-all duration-200 cursor-pointer ${
                 isSelected
-                  ? 'border-[#5D34F7] bg-[#5D34F7]/5 text-[#5D34F7] shadow-sm'
+                  ? 'border-[#5D34F7] bg-[#5D34F7]/10 text-[#5D34F7] font-bold shadow-2xs'
                   : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
               }`}
             >
@@ -221,6 +318,7 @@ function ChipSelector({ options, selected, onChange, title }) {
           );
         })}
       </div>
+
       {hasMore && (
         <button
           type="button"
@@ -260,15 +358,147 @@ export default function Profile() {
   const [shareUrl, setShareUrl] = useState('');
   const [viewerUser, setViewerUser] = useState(null);
   const [unlockedContacts, setUnlockedContacts] = useState(getCachedUnlockedContacts());
+  const [copiedFamId, setCopiedFamId] = useState(null);
+  const [copyToast, setCopyToast] = useState({ show: false, message: '', type: 'success' });
+  const [showRemoveCollegeModal, setShowRemoveCollegeModal] = useState(false);
+  const [isRemovingCollege, setIsRemovingCollege] = useState(false);
+  const [removeCollegeSuccess, setRemoveCollegeSuccess] = useState(false);
+
+  // Feature 19: Dedicated Profile Picture (DP) Modal State
+  const [changeDpModalOpen, setChangeDpModalOpen] = useState(false);
+  const [selectedDpFile, setSelectedDpFile] = useState(null);
+  const [dpPreviewUrl, setDpPreviewUrl] = useState(null);
+  const [isUploadingDp, setIsUploadingDp] = useState(false);
+  const [dpUploadError, setDpUploadError] = useState('');
+  const [dpUploadSuccess, setDpUploadSuccess] = useState(false);
+
+  // Full-Screen Lightbox Image Viewer State
+  const [fullScreenImage, setFullScreenImage] = useState({
+    isOpen: false,
+    images: [],
+    initialIndex: 0,
+    userName: '',
+    gender: 'Male',
+    targetUserId: null
+  });
+
+  const handleOpenFullScreenImage = (initialIndex = 0) => {
+    const prof = profile || {};
+    const p = prof.profile || {};
+    const photosList = (Array.isArray(photos) && photos.length > 0)
+      ? photos
+      : (Array.isArray(p.photos) && p.photos.length > 0)
+        ? p.photos
+        : (Array.isArray(prof.photos) && prof.photos.length > 0)
+          ? prof.photos
+          : (p.photo ? [p.photo] : (prof.photo ? [prof.photo] : (prof.profilePhoto ? [prof.profilePhoto] : [])));
+    const isOtherUser = Boolean(id && String(id) !== String(viewerUser?._id));
+    setFullScreenImage({
+      isOpen: true,
+      images: photosList,
+      initialIndex,
+      userName: p.name || prof.name || prof.email || 'Member',
+      gender: p.gender || prof.gender || 'Male',
+      targetUserId: isOtherUser ? id : null
+    });
+  };
+
+  // Retrieve valid FAM ID from profile data or route parameter
+  const getValidFamId = (prof, fallbackId) => {
+    if (!prof && !fallbackId) return null;
+    const raw = prof?.famId || prof?.fam_id || prof?.profile?.famId || prof?.profile?.fam_id || prof?.uid;
+    if (raw && typeof raw === 'string') {
+      const trimmed = raw.trim();
+      const upper = trimmed.toUpperCase();
+      if (upper === 'N/A' || upper === 'UNDEFINED' || upper === 'NULL' || upper === 'MEMBER' || upper === 'USERID') {
+        return null;
+      }
+      if (upper.startsWith('FAM')) {
+        return trimmed;
+      }
+      if (/^\d{6,10}$/.test(trimmed)) {
+        return `FAM${trimmed.padStart(8, '0')}`;
+      }
+      if (/^[A-Za-z0-9_-]{4,20}$/.test(trimmed)) {
+        return trimmed;
+      }
+    }
+    if (fallbackId && typeof fallbackId === 'string') {
+      const trimmed = fallbackId.trim();
+      if (trimmed.toUpperCase().startsWith('FAM')) {
+        return trimmed;
+      }
+    }
+    return null;
+  };
+
+  const famId = getValidFamId(profile, id);
+
+  const handleCopyFamId = async (idToCopy, e) => {
+    if (e) {
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      if (typeof e.stopPropagation === 'function') e.stopPropagation();
+    }
+    if (!idToCopy) return;
+
+    let success = false;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(idToCopy);
+        success = true;
+      } else {
+        throw new Error('Clipboard API unavailable');
+      }
+    } catch {
+      // Fallback for older browsers / iframe / mobile webview
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = idToCopy;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '-9999px';
+        textArea.style.left = '-9999px';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        success = document.execCommand('copy');
+        document.body.removeChild(textArea);
+      } catch (err2) {
+        console.error('Clipboard copy failed:', err2);
+        success = false;
+      }
+    }
+
+    if (success) {
+      setCopiedFamId(idToCopy);
+      setCopyToast({ show: true, message: 'FAM ID copied successfully!', type: 'success' });
+      setTimeout(() => setCopiedFamId(null), 2500);
+      setTimeout(() => setCopyToast((prev) => ({ ...prev, show: false })), 2500);
+    } else {
+      setCopyToast({ show: true, message: 'Failed to copy FAM ID. Please copy manually.', type: 'error' });
+      setTimeout(() => setCopyToast((prev) => ({ ...prev, show: false })), 3000);
+    }
+  };
 
   // Edit states
   const [profileFor, setProfileFor] = useState('');
   const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [otherUserInterestSent, setOtherUserInterestSent] = useState(false);
+  const [isSendingOtherInterest, setIsSendingOtherInterest] = useState(false);
+  const [showVipConsultantModal, setShowVipConsultantModal] = useState(false);
+  const [showVipShaadiModal, setShowVipShaadiModal] = useState(false);
+  const [vipEnquiryData, setVipEnquiryData] = useState(null);
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState('');
   const [religion, setReligion] = useState('');
   const [caste, setCaste] = useState('');
   const [subCommunity, setSubCommunity] = useState('');
+  const [customSubCommunity, setCustomSubCommunity] = useState('');
+  const [subCommunitySearch, setSubCommunitySearch] = useState('');
+  const [serverSubCommunities, setServerSubCommunities] = useState(null);
+  const [isLoadingCommunities, setIsLoadingCommunities] = useState(false);
   const [city, setCity] = useState('');
   const [stateLoc, setStateLoc] = useState('');
   const [locationSearchQuery, setLocationSearchQuery] = useState('');
@@ -279,6 +509,9 @@ export default function Profile() {
   const [countryCode, setCountryCode] = useState('+91');
   const [callModalData, setCallModalData] = useState({ isOpen: false, phone: '', name: '', photo: '' });
   const [maritalStatus, setMaritalStatus] = useState('');
+  const [hasChildren, setHasChildren] = useState('No');
+  const [childrenCount, setChildrenCount] = useState(0);
+  const [childrenStayingWith, setChildrenStayingWith] = useState('');
   const [height, setHeight] = useState('');
   const [diet, setDiet] = useState('');
   const [qualification, setQualification] = useState('');
@@ -301,6 +534,42 @@ export default function Profile() {
   const [familyLocation, setFamilyLocation] = useState('');
   const [timeOfBirth, setTimeOfBirth] = useState('');
   const [cityOfBirth, setCityOfBirth] = useState('');
+  const [astroCoords, setAstroCoords] = useState(null);
+  const [isEditingHobbies, setIsEditingHobbies] = useState(false);
+  const [draftHobbies, setDraftHobbies] = useState([]);
+  const [hobbiesSuccess, setHobbiesSuccess] = useState(false);
+  const [hobbiesError, setHobbiesError] = useState('');
+  const [customHobbyInput, setCustomHobbyInput] = useState('');
+
+  // Spoken Languages States
+  const [languages, setLanguages] = useState([]);
+  const [isEditingLanguages, setIsEditingLanguages] = useState(false);
+  const [draftLanguages, setDraftLanguages] = useState([]);
+  const [languagesSuccess, setLanguagesSuccess] = useState(false);
+  const [languagesError, setLanguagesError] = useState('');
+  const [customLanguageInput, setCustomLanguageInput] = useState('');
+  const [languageSearch, setLanguageSearch] = useState('');
+
+  // Partner Preferences Subsections Collapse/Expand State
+  const [collapsedPrefSections, setCollapsedPrefSections] = useState({});
+
+  const togglePrefSection = (sectionKey) => {
+    setCollapsedPrefSections(prev => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey]
+    }));
+  };
+
+  const toggleAllPrefSections = (allSectionKeys) => {
+    const allCollapsed = allSectionKeys.length > 0 && allSectionKeys.every(k => !!collapsedPrefSections[k]);
+    if (allCollapsed) {
+      setCollapsedPrefSections({});
+    } else {
+      const next = {};
+      allSectionKeys.forEach(k => { next[k] = true; });
+      setCollapsedPrefSections(next);
+    }
+  };
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -314,7 +583,8 @@ export default function Profile() {
 
   const handleDownloadProfile = (profData) => {
     const p = profData?.profile || {};
-    const photoUrl = p.photos?.[0] ? getPhotoUrl(p.photos[0]) : '';
+    const firstPhoto = p.photos?.[0] || profData?.photos?.[0] || p.photo || profData?.photo || '';
+    const photoUrl = firstPhoto ? getPhotoUrl(firstPhoto, p.gender) : '';
     const name = p.name || 'N/A';
     const age = p.age || 'N/A';
     const dob = p.dob ? new Date(p.dob).toLocaleDateString() : 'N/A';
@@ -336,6 +606,7 @@ export default function Profile() {
     const motherStatus = p.motherStatus || 'N/A';
     const financialStatus = p.familyFinancialStatus || 'N/A';
     const familyLocation = p.familyLocation || 'N/A';
+    const siblingsStr = formatSiblings(p);
     const bioStr = p.bio || 'N/A';
     const hobbiesList = p.hobbies ? p.hobbies.join(', ') : 'N/A';
     const email = profData?.email;
@@ -461,13 +732,15 @@ export default function Profile() {
           <div class="biodata-card">
             <div class="header">
               <h1>Matrimonial Bio-Data</h1>
-              <p>Familiess Matrimony - UID: ${profData?.uid || 'N/A'}</p>
+              <p>Familiess Matrimony - UID: ${profData?.uid || 'N/A'}${famId ? ` | FAM ID: ${famId}` : ''}</p>
             </div>
             
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 30px;">
               <div style="flex: 1;">
                 <div class="section-title" style="margin-top: 0;">Personal Details</div>
                 <div class="info-grid">
+                  ${famId ? `<div class="info-label">FAM ID</div><div class="info-val">${famId}</div>` : ''}
+                  ${formatProfileCreatedBy(p.profileFor || profData?.profileFor) ? `<div class="info-label">Profile Created By</div><div class="info-val">${formatProfileCreatedBy(p.profileFor || profData?.profileFor)}</div>` : ''}
                   <div class="info-label">Full Name</div><div class="info-val">${name}</div>
                   <div class="info-label">Date of Birth</div><div class="info-val">${dob} (${age} Yrs)</div>
                   <div class="info-label">Gender</div><div class="info-val">${gender}</div>
@@ -501,6 +774,7 @@ export default function Profile() {
             <div class="info-grid">
               <div class="info-label">Father's Status</div><div class="info-val">${fatherStatus}</div>
               <div class="info-label">Mother's Status</div><div class="info-val">${motherStatus}</div>
+              <div class="info-label">Siblings</div><div class="info-val">${siblingsStr}</div>
               <div class="info-label">Family Income/Setup</div><div class="info-val">${financialStatus}</div>
               <div class="info-label">Family Location</div><div class="info-val">${familyLocation}</div>
             </div>
@@ -536,6 +810,7 @@ export default function Profile() {
   const [prefReligions, setPrefReligions] = useState([]);
   const [prefCastes, setPrefCastes] = useState([]);
   const [prefMaritalStatuses, setPrefMaritalStatuses] = useState([]);
+  const [prefChildren, setPrefChildren] = useState([]);
   const [prefHeightMinIdx, setPrefHeightMinIdx] = useState(0);
   const [prefHeightMaxIdx, setPrefHeightMaxIdx] = useState(ALL_HEIGHTS.length - 1);
   const [prefDiets, setPrefDiets] = useState([]);
@@ -547,6 +822,14 @@ export default function Profile() {
   const [prefColleges, setPrefColleges] = useState([]);
   const [prefWorkSectors, setPrefWorkSectors] = useState([]);
   const [prefFinancialStatuses, setPrefFinancialStatuses] = useState([]);
+  const [prefLanguages, setPrefLanguages] = useState([]);
+  const [liveMatchesCount, setLiveMatchesCount] = useState(null);
+  const [isCountingMatches, setIsCountingMatches] = useState(false);
+  const [showDescriptionVerifyModal, setShowDescriptionVerifyModal] = useState(false);
+  const [verifyBioText, setVerifyBioText] = useState('');
+  const [verifyBioError, setVerifyBioError] = useState('');
+  const [isSubmittingVerifyBio, setIsSubmittingVerifyBio] = useState(false);
+  const [verifyBioSuccess, setVerifyBioSuccess] = useState(false);
 
   const fetchProfile = async () => {
     try {
@@ -585,6 +868,9 @@ export default function Profile() {
         const p = response.data.profile || {};
         setProfileFor(p.profileFor || '');
         setFullName(p.name || '');
+        const pParts = (p.name || '').trim().split(/\s+/);
+        setFirstName(p.firstName || pParts[0] || '');
+        setLastName(p.lastName || pParts.slice(1).join(' ') || '');
         if (p.dob) {
           const dateObj = new Date(p.dob);
           if (!isNaN(dateObj.getTime())) {
@@ -603,6 +889,11 @@ export default function Profile() {
         setCity(p.city || '');
         setStateLoc(p.state || '');
         setMaritalStatus(p.maritalStatus || '');
+        setHasChildren(p.hasChildren !== undefined && p.hasChildren !== null && p.hasChildren !== ''
+          ? p.hasChildren
+          : ((p.maritalStatus && p.maritalStatus !== 'Never Married' && ((p.childrenCount && p.childrenCount > 0) || (p.noOfChildren && p.noOfChildren > 0) || (p.children && p.children > 0))) ? 'Yes' : 'No'));
+        setChildrenCount(p.childrenCount !== undefined && p.childrenCount !== null ? Number(p.childrenCount) : (p.noOfChildren !== undefined && p.noOfChildren !== null ? Number(p.noOfChildren) : (typeof p.children === 'number' ? p.children : 0)));
+        setChildrenStayingWith(p.childrenStayingWith || '');
         setHeight(p.height || '');
         setDiet(p.diet || '');
         setQualification(p.education || '');
@@ -612,17 +903,29 @@ export default function Profile() {
         setWorkRole(p.workRole || '');
         setCompany(p.companyName || '');
         setBio(p.bio || '');
-        setPhotos(p.photos || []);
+        setPhotos(
+          Array.isArray(p.photos) && p.photos.length > 0
+            ? p.photos
+            : (Array.isArray(response.data?.photos) && response.data.photos.length > 0
+              ? response.data.photos
+              : (p.photo ? [p.photo] : (response.data?.photo ? [response.data.photo] : [])))
+        );
         setHobbies(p.hobbies || []);
+        const loadedLangs = getLanguagesList(p.languages || response.data?.languages || p.motherTongue);
+        setLanguages(loadedLangs);
+        setDraftLanguages(loadedLangs);
         setMotherStatus(p.motherStatus || '');
         setFatherStatus(p.fatherStatus || '');
-        setSistersCount(p.sistersCount || 0);
-        setBrothersCount(p.brothersCount || 0);
+        setSistersCount(p.sistersCount !== undefined && p.sistersCount !== null ? Number(p.sistersCount) : 0);
+        setBrothersCount(p.brothersCount !== undefined && p.brothersCount !== null ? Number(p.brothersCount) : 0);
         setLiveWithFamily(p.liveWithFamily !== undefined ? p.liveWithFamily : null);
         setFamilyFinancialStatus(p.familyFinancialStatus || '');
         setFamilyLocation(p.familyLocation || '');
         setTimeOfBirth(p.astrology?.timeOfBirth || '');
-        setCityOfBirth(p.astrology?.cityOfBirth || '');
+        setCityOfBirth(p.astrology?.cityOfBirth || p.city || '');
+        if (p.astrology?.latitude && p.astrology?.longitude) {
+          setAstroCoords({ latitude: p.astrology.latitude, longitude: p.astrology.longitude });
+        }
 
         const prefs = response.data.preferences || {};
         if (prefs.ageRange && prefs.ageRange.length === 2) {
@@ -633,6 +936,7 @@ export default function Profile() {
         setPrefReligions(prefs.religion || []);
         setPrefCastes(prefs.caste || []);
         setPrefMaritalStatuses(prefs.maritalStatus || []);
+        setPrefChildren(normalizeChildrenFromBackend(prefs.children));
         const savedHeights = prefs.height || [];
         if (savedHeights.length > 0) {
           let minIdx = ALL_HEIGHTS.indexOf(savedHeights[0]);
@@ -654,6 +958,7 @@ export default function Profile() {
         setPrefColleges(prefs.college || []);
         setPrefWorkSectors(prefs.workSector || []);
         setPrefFinancialStatuses(prefs.familyFinancialStatus || []);
+        setPrefLanguages(prefs.languages || prefs.motherTongue || []);
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Failed to fetch profile.');
@@ -679,11 +984,13 @@ export default function Profile() {
           income: prefIncomes,
           location: prefLocations,
           maritalStatus: prefMaritalStatuses,
+          children: normalizeChildrenForBackend(prefChildren),
           diet: prefDiets,
           subCommunity: prefSubCommunities,
           college: prefColleges,
           workSector: prefWorkSectors,
           familyFinancialStatus: prefFinancialStatuses,
+          languages: prefLanguages,
         }
       };
       const response = await api.put('/users/profile', payload);
@@ -710,13 +1017,114 @@ export default function Profile() {
     }
   }, [location.state]);
 
+  // Fetch communities & subcommunities from server dynamically
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoadingCommunities(true);
+    fetchCommunitiesData()
+      .then(data => {
+        if (isMounted && data?.subcommunities) {
+          setServerSubCommunities(data.subcommunities);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to load server communities in Profile:', err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingCommunities(false);
+      });
+    return () => { isMounted = false; };
+  }, []);
+
+  const fetchVipEnquiry = useCallback(async () => {
+    try {
+      const res = await api.get('/vip-shaadi/my-enquiry');
+      if (res.data && res.data.success) {
+        setVipEnquiryData(res.data);
+      }
+    } catch (err) {
+      console.warn('Error fetching VIP enquiry in Profile:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!id) {
+      fetchVipEnquiry();
+    }
+  }, [id, fetchVipEnquiry]);
+
+  // Use entered/selected city to resolve coordinates for Astrology API
+  useEffect(() => {
+    if (!city || !city.trim()) return;
+    const timer = setTimeout(async () => {
+      try {
+        const coords = await LocationService.getCoordinatesForCity(city);
+        if (coords) {
+          setAstroCoords(coords);
+        }
+      } catch (err) {
+        console.warn('Could not geocode city for astrology:', err);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [city]);
+
+  // Live count of matching profiles based on draft partner preferences
+  useEffect(() => {
+    if (activeTab !== 'preferences') return;
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsCountingMatches(true);
+        const selectedHeights = ALL_HEIGHTS.slice(prefHeightMinIdx, prefHeightMaxIdx + 1);
+        const draftPrefs = {
+          ageRange: [prefAgeMin, prefAgeMax],
+          gender: prefGenders,
+          religion: prefReligions,
+          caste: prefCastes,
+          height: selectedHeights,
+          education: prefEducations,
+          profession: prefProfessions,
+          income: prefIncomes,
+          location: prefLocations,
+          maritalStatus: prefMaritalStatuses,
+          children: normalizeChildrenForBackend(prefChildren),
+          diet: prefDiets,
+          subCommunity: prefSubCommunities,
+          college: prefColleges,
+          workSector: prefWorkSectors,
+          familyFinancialStatus: prefFinancialStatuses,
+          languages: prefLanguages,
+        };
+        const res = await api.post('/users/matches/count', { preferences: draftPrefs });
+        if (res.data && typeof res.data.count === 'number') {
+          setLiveMatchesCount(res.data.count);
+        }
+      } catch (err) {
+        console.error('Error fetching live matches count for preferences:', err);
+        setLiveMatchesCount((prev) => (prev !== null ? prev : 0));
+      } finally {
+        setIsCountingMatches(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeTab,
+    prefAgeMin, prefAgeMax, prefGenders, prefReligions, prefCastes,
+    prefHeightMinIdx, prefHeightMaxIdx, prefEducations, prefProfessions,
+    prefIncomes, prefLocations, prefMaritalStatuses, prefChildren, prefDiets,
+    prefSubCommunities, prefColleges, prefWorkSectors, prefFinancialStatuses,
+    prefLanguages
+  ]);
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     navigate('/');
   };
 
   // Build a unified profile payload from current state
-  const buildProfilePayload = (overridePhotos) => {
+  const buildProfilePayload = (overridePhotos, overrideHobbies, overrideLanguages) => {
     let dobISO = '';
     if (dob) {
       const parts = dob.split('/');
@@ -728,17 +1136,17 @@ export default function Profile() {
         if (!isNaN(d.getTime())) dobISO = d.toISOString();
       }
     }
-    const nameParts = fullName.trim().split(/\s+/);
-    const firstName = nameParts[0] || '';
-    const lastName = nameParts.slice(1).join(' ') || '';
+    const computedName = `${firstName.trim()} ${lastName.trim()}`.trim() || fullName.trim();
+    const finalFirstName = firstName.trim() || computedName.split(/\s+/)[0] || '';
+    const finalLastName = lastName.trim() || computedName.split(/\s+/).slice(1).join(' ') || '';
     return {
       email: email.trim(),
       phone: `${countryCode} ${phone.trim()}`,
       profile: {
         profileFor,
-        name: fullName.trim(),
-        firstName,
-        lastName,
+        name: computedName,
+        firstName: finalFirstName,
+        lastName: finalLastName,
         dob: dobISO || undefined,
         gender,
         religion,
@@ -750,26 +1158,34 @@ export default function Profile() {
         subCommunity,
         diet,
         education: qualification,
-        college,
+        college: college ? college.trim() : '',
         income,
         workSector,
         workRole,
         companyName: company,
         bio,
         photos: overridePhotos !== undefined ? overridePhotos : photos,
-        hobbies,
+        hobbies: overrideHobbies !== undefined ? overrideHobbies : hobbies,
+        languages: overrideLanguages !== undefined ? overrideLanguages : languages,
+        motherTongue: (overrideLanguages !== undefined ? overrideLanguages[0] : languages[0]) || p.motherTongue || '',
         motherStatus,
         fatherStatus,
         sistersCount: Number(sistersCount) || 0,
         brothersCount: Number(brothersCount) || 0,
+        siblingsCount: (Number(brothersCount) || 0) + (Number(sistersCount) || 0),
         liveWithFamily: liveWithFamily === true ? true : liveWithFamily === false ? false : undefined,
         familyFinancialStatus,
         familyLocation,
         maritalStatus,
+        hasChildren: maritalStatus === 'Never Married' ? 'No' : hasChildren,
+        childrenCount: maritalStatus === 'Never Married' ? 0 : Number(childrenCount) || 0,
+        noOfChildren: maritalStatus === 'Never Married' ? 0 : Number(childrenCount) || 0,
+        childrenStayingWith: (maritalStatus !== 'Never Married' && hasChildren === 'Yes') ? childrenStayingWith : '',
         height,
         astrology: {
           timeOfBirth,
-          cityOfBirth
+          cityOfBirth: cityOfBirth || city || '',
+          ...(astroCoords?.latitude ? { latitude: astroCoords.latitude, longitude: astroCoords.longitude } : {})
         }
       }
     };
@@ -778,11 +1194,122 @@ export default function Profile() {
   // Save full profile (used by Edit Mode Save button)
   const handleSave = async () => {
     setError('');
+
+    // 1. Full Name Validation
+    const trimmedName = fullName ? fullName.trim() : '';
+    if (!trimmedName) {
+      setError('Please enter your full name.');
+      setActiveEditCategory('basic');
+      return;
+    }
+    if (trimmedName.length < 2) {
+      setError('Full name must be at least 2 characters long.');
+      setActiveEditCategory('basic');
+      return;
+    }
+    if (!/^[a-zA-Z\s.'-]+$/.test(trimmedName)) {
+      setError('Full name should only contain letters, spaces, hyphens, and apostrophes.');
+      setActiveEditCategory('basic');
+      return;
+    }
+
+    // 2. Date of Birth Validation
+    if (dob) {
+      const parts = dob.trim().split('/');
+      if (parts.length !== 3) {
+        setError('Please enter Date of Birth in DD/MM/YYYY format (e.g., 15/08/1995).');
+        setActiveEditCategory('basic');
+        return;
+      }
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10);
+      const year = parseInt(parts[2], 10);
+      const now = new Date();
+      const currentYear = now.getFullYear();
+
+      if (isNaN(day) || isNaN(month) || isNaN(year) || month < 1 || month > 12 || day < 1 || day > 31 || year < 1920 || year > currentYear) {
+        setError('Please enter a valid calendar Date of Birth in DD/MM/YYYY format.');
+        setActiveEditCategory('basic');
+        return;
+      }
+
+      const birthDate = new Date(year, month - 1, day);
+      if (birthDate.getMonth() !== month - 1 || birthDate.getDate() !== day) {
+        setError('Please enter a valid calendar Date of Birth.');
+        setActiveEditCategory('basic');
+        return;
+      }
+
+      if (birthDate > now) {
+        setError('Date of birth cannot be in the future.');
+        setActiveEditCategory('basic');
+        return;
+      }
+
+      let calcAge = currentYear - year;
+      const mDiff = now.getMonth() - (month - 1);
+      if (mDiff < 0 || (mDiff === 0 && now.getDate() < day)) {
+        calcAge--;
+      }
+
+      if (calcAge < 18) {
+        setError(`You must be at least 18 years old to register or update a profile on this platform (current calculated age: ${calcAge}).`);
+        setActiveEditCategory('basic');
+        return;
+      }
+    }
+
+    // 3. Email Validation
+    const trimmedEmail = email ? email.trim() : '';
+    if (!trimmedEmail) {
+      setError('Please enter an email address.');
+      setActiveEditCategory('contact');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Please enter a valid email address (e.g. name@example.com).');
+      setActiveEditCategory('contact');
+      return;
+    }
+
+    // 4. Phone Number Validation
     const phoneErr = validatePhoneNumber(phone, countryCode);
     if (phoneErr) {
       setError(phoneErr);
+      setActiveEditCategory('contact');
       return;
     }
+
+    // 5. Bio / Description Content Safety Validation
+    if (bio && bio.trim()) {
+      const trimmedBio = bio.trim();
+      if (trimmedBio.length > 1000) {
+        setError('Description cannot exceed 1000 characters.');
+        setActiveEditCategory('basic');
+        return;
+      }
+      const phoneInBioRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b[6-9]\d{9}\b/;
+      const emailInBioRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+      if (phoneInBioRegex.test(trimmedBio) || emailInBioRegex.test(trimmedBio)) {
+        setError('For your privacy and safety, personal phone numbers and email addresses are not permitted in the description/bio.');
+        setActiveEditCategory('basic');
+        return;
+      }
+    }
+
+    // 6. Family Details Validation
+    if (sistersCount !== undefined && Number(sistersCount) < 0) {
+      setError('Number of sisters cannot be negative.');
+      setActiveEditCategory('family');
+      return;
+    }
+    if (brothersCount !== undefined && Number(brothersCount) < 0) {
+      setError('Number of brothers cannot be negative.');
+      setActiveEditCategory('family');
+      return;
+    }
+
     setIsSaving(true);
     try {
       const payload = buildProfilePayload();
@@ -792,10 +1319,99 @@ export default function Profile() {
       setIsEditing(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
+      fetchProfile();
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Failed to update profile.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Direct College Removal (Save to backend immediately)
+  const handleDirectRemoveCollege = async () => {
+    setIsRemovingCollege(true);
+    setError('');
+    try {
+      setCollege('');
+      const payload = buildProfilePayload();
+      payload.profile.college = '';
+      const base64Payload = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+      const response = await api.post('/users/profile', { encodedPayload: base64Payload });
+      setProfile(response.data);
+      setShowRemoveCollegeModal(false);
+      setRemoveCollegeSuccess(true);
+      setTimeout(() => setRemoveCollegeSuccess(false), 2500);
+      fetchProfile();
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Failed to remove college.');
+    } finally {
+      setIsRemovingCollege(false);
+    }
+  };
+
+  // Dedicated Description Verification Submission
+  const handleVerifyDescriptionSubmit = async (customBioText) => {
+    const textToSubmit = (customBioText !== undefined ? customBioText : verifyBioText).trim();
+    
+    if (!textToSubmit) {
+      setVerifyBioError('Please enter a description about yourself.');
+      return;
+    }
+    if (textToSubmit.length < 20) {
+      setVerifyBioError('Description should be at least 20 characters long to provide meaningful information.');
+      return;
+    }
+    if (textToSubmit.length > 1000) {
+      setVerifyBioError('Description cannot exceed 1000 characters.');
+      return;
+    }
+    const phoneRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b[6-9]\d{9}\b/;
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+    if (phoneRegex.test(textToSubmit) || emailRegex.test(textToSubmit)) {
+      setVerifyBioError('For your privacy and safety, personal phone numbers or email addresses are not permitted in the public description.');
+      return;
+    }
+
+    setVerifyBioError('');
+    setIsSubmittingVerifyBio(true);
+
+    try {
+      let finalBio = textToSubmit;
+      if (p.bio && p.bio === textToSubmit && profile?.aboutMeVerificationStatus !== 'pending') {
+        finalBio = textToSubmit.endsWith(' ') ? textToSubmit.trim() : `${textToSubmit} `;
+      }
+
+      const updatedProfile = {
+        ...p,
+        bio: finalBio
+      };
+
+      const res = await api.put('/users/profile', {
+        profile: updatedProfile
+      });
+
+      const updatedUser = res.data || {};
+      const newStatus = updatedUser.aboutMeVerificationStatus || 'pending';
+      setProfile((prev) => ({
+        ...prev,
+        ...updatedUser,
+        aboutMeVerificationStatus: newStatus,
+        profile: {
+          ...(prev?.profile || {}),
+          ...updatedProfile,
+          bio: textToSubmit
+        }
+      }));
+      setBio(textToSubmit);
+      setVerifyBioSuccess(true);
+      setTimeout(() => {
+        setVerifyBioSuccess(false);
+        setShowDescriptionVerifyModal(false);
+      }, 1600);
+    } catch (err) {
+      setVerifyBioError(err.response?.data?.message || err.message || 'Failed to submit description for verification.');
+    } finally {
+      setIsSubmittingVerifyBio(false);
     }
   };
 
@@ -829,6 +1445,117 @@ export default function Profile() {
     }
   };
 
+  const handleUploadGalleryPhotos = async (selectedFiles) => {
+    const fileList = Array.from(selectedFiles || []);
+    if (fileList.length === 0) return;
+
+    const currentCount = (Array.isArray(photos) && photos.length > 0)
+      ? photos.length
+      : ((profile?.profile?.photos || profile?.photos || []).length);
+
+    if (currentCount >= 10) {
+      setError('You can upload a maximum of 10 pictures per account.');
+      return;
+    }
+
+    const availableSlots = 10 - currentCount;
+    const filesToUpload = fileList.slice(0, availableSlots);
+
+    if (fileList.length > availableSlots) {
+      setError('You can upload a maximum of 10 pictures per account. Only the first available slots were uploaded.');
+    } else {
+      setError('');
+    }
+
+    for (const file of filesToUpload) {
+      if (!file.type || !file.type.startsWith('image/')) {
+        setError('Please upload valid image files (JPG, PNG, WebP).');
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        setError('Each picture must be less than 10MB.');
+        return;
+      }
+    }
+
+    setIsSaving(true);
+    try {
+      const uploadedNames = await uploadFiles(filesToUpload);
+      const existing = (Array.isArray(photos) && photos.length > 0)
+        ? photos
+        : ((profile?.profile?.photos || profile?.photos || []));
+      const newPhotos = [...existing, ...uploadedNames].slice(0, 10);
+      setPhotos(newPhotos);
+      await savePhotosDirectly(newPhotos);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Failed to upload images.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSetPrimaryPhoto = async (index) => {
+    const existing = (Array.isArray(photos) && photos.length > 0)
+      ? photos
+      : ((profile?.profile?.photos || profile?.photos || []));
+    if (index === 0 || !existing[index]) return;
+    const target = existing[index];
+    const newPhotos = [target, ...existing.filter((_, i) => i !== index)];
+    setPhotos(newPhotos);
+    await savePhotosDirectly(newPhotos);
+  };
+
+  const handleDeletePhoto = async (index) => {
+    const existing = (Array.isArray(photos) && photos.length > 0)
+      ? photos
+      : ((profile?.profile?.photos || profile?.photos || []));
+    const newPhotos = existing.filter((_, i) => i !== index);
+    setPhotos(newPhotos);
+    await savePhotosDirectly(newPhotos);
+  };
+
+  const saveHobbiesDirectly = async (newHobbies) => {
+    setIsSaving(true);
+    setHobbiesError('');
+    try {
+      const payload = buildProfilePayload(undefined, newHobbies);
+      const base64Payload = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+      const response = await api.post('/users/profile', { encodedPayload: base64Payload });
+      setProfile(response.data);
+      const updated = response.data?.profile?.hobbies || newHobbies;
+      setHobbies(updated);
+      setDraftHobbies(updated);
+      setIsEditingHobbies(false);
+      setHobbiesSuccess(true);
+      setTimeout(() => setHobbiesSuccess(false), 3000);
+    } catch (err) {
+      setHobbiesError(err.response?.data?.message || err.message || 'Failed to update hobbies.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const saveLanguagesDirectly = async (newLanguages) => {
+    setIsSaving(true);
+    setLanguagesError('');
+    try {
+      const payload = buildProfilePayload(undefined, undefined, newLanguages);
+      const base64Payload = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+      const response = await api.post('/users/profile', { encodedPayload: base64Payload });
+      setProfile(response.data);
+      const updated = getLanguagesList(response.data?.profile?.languages || newLanguages);
+      setLanguages(updated);
+      setDraftLanguages(updated);
+      setIsEditingLanguages(false);
+      setLanguagesSuccess(true);
+      setTimeout(() => setLanguagesSuccess(false), 3000);
+    } catch (err) {
+      setLanguagesError(err.response?.data?.message || err.message || 'Failed to update spoken languages.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
@@ -839,6 +1566,27 @@ export default function Profile() {
 
   const p = profile?.profile || {};
 
+  // Exact image field fallbacks: state photos -> nested profile.photos -> root user.photos -> single photo fields
+  const displayPhotos = (Array.isArray(photos) && photos.length > 0)
+    ? photos
+    : (Array.isArray(p.photos) && p.photos.length > 0)
+      ? p.photos
+      : (Array.isArray(profile?.photos) && profile.photos.length > 0)
+        ? profile.photos
+        : (p.photo ? [p.photo] : (profile?.photo ? [profile.photo] : (profile?.profilePhoto ? [profile.profilePhoto] : [])));
+
+  // Helper to extract photo verification status without restricting image display
+  const getPhotoStatus = (photoItem) => {
+    if (!photoItem) return null;
+    if (typeof photoItem === 'object') {
+      const status = (photoItem.verificationStatus || photoItem.status || '').toLowerCase();
+      if (status === 'rejected' || photoItem.rejected === true) return 'rejected';
+      if (status === 'pending') return 'pending';
+      if (status === 'approved' || status === 'verified' || photoItem.approved === true) return 'approved';
+    }
+    return null;
+  };
+
   // ========================
   // Edit Mode Category Panels
   // ========================
@@ -848,28 +1596,51 @@ export default function Profile() {
       (RELIGION_CASTES_MAP[religion] || []).forEach(x => c.push(x));
       return [...new Set(c)];
     })();
-    const availableSubCommunities = (() => {
-      let s = [];
-      (CASTE_SUB_COMMUNITIES_MAP[caste] || []).forEach(x => s.push(x));
-      return [...new Set(s)];
-    })();
+    const subCommunityOptions = getSubCommunityOptions(religion, caste, serverSubCommunities, subCommunity);
     const stateCities = INDIA_CITIES_BY_STATE[stateLoc] || ALL_LOCATIONS;
 
     switch (activeEditCategory) {
       case 'basic':
         return (
           <div className="space-y-5">
-            <EditField label="Profile Created For">
+            <EditField label="Profile Created By">
               <select value={profileFor} onChange={e => setProfileFor(e.target.value)} className={selectCls}>
                 <option value="">Select...</option>
-                {['Myself', 'My Son', 'My Daughter', 'My Brother', 'My Sister', 'My Friend'].map(v => (
+                {['Myself', 'My Son', 'My Daughter', 'My Brother', 'My Sister', 'My Relative', 'My Friend'].map(v => (
                   <option key={v} value={v}>{v}</option>
                 ))}
               </select>
             </EditField>
-            <EditField label="Full Name">
-              <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} className={inputCls} placeholder="Enter full name" />
-            </EditField>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <EditField label="First Name">
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => {
+                    // Feature 13: block numeric characters from pure text fields
+                    const clean = e.target.value.replace(/[0-9]/g, '');
+                    setFirstName(clean);
+                    setFullName(`${clean.trim()} ${lastName.trim()}`.trim());
+                  }}
+                  className={inputCls}
+                  placeholder="e.g. Rahul"
+                />
+              </EditField>
+              <EditField label="Last Name / Surname">
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => {
+                    // Feature 13: block numeric characters from pure text fields
+                    const clean = e.target.value.replace(/[0-9]/g, '');
+                    setLastName(clean);
+                    setFullName(`${firstName.trim()} ${clean.trim()}`.trim());
+                  }}
+                  className={inputCls}
+                  placeholder="e.g. Sharma"
+                />
+              </EditField>
+            </div>
             <EditField label="Gender">
               <div className="flex gap-3">
                 {['Male', 'Female'].map(g => (
@@ -888,27 +1659,229 @@ export default function Profile() {
                 placeholder="Write something about yourself..."
                 className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7]/40 focus:border-[#5D34F7] text-sm resize-none bg-white transition-all" />
             </EditField>
+
+            <EditField label="Spoken Languages">
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {languages.map(l => (
+                    <span key={l} className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-50 text-sky-700 border border-sky-200 text-xs font-bold rounded-lg shadow-2xs">
+                      {l}
+                      <button
+                        type="button"
+                        onClick={() => setLanguages(languages.filter(x => x !== l))}
+                        className="text-slate-400 hover:text-rose-600 ml-0.5 cursor-pointer font-black text-[11px]"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setActiveEditCategory('languages')}
+                    className="px-3 py-1 bg-[#5D34F7]/10 hover:bg-[#5D34F7]/20 text-[#5D34F7] rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                  >
+                    <Languages size={12} />
+                    <span>Manage Languages ({languages.length})</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400">Click &ldquo;Manage Languages&rdquo; or the Spoken Languages tab to add or remove languages.</p>
+              </div>
+            </EditField>
           </div>
         );
 
-      case 'religion':
+      case 'languages': {
+        const filteredLanguages = ALL_SPOKEN_LANGUAGES.filter(opt => {
+          if (!languageSearch) return true;
+          return opt.toLowerCase().includes(languageSearch.toLowerCase());
+        });
+
+        return (
+          <div className="space-y-6">
+            <div className="p-4 bg-sky-50/60 rounded-2xl border border-sky-100 flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-white text-sky-600 shadow-2xs shrink-0 mt-0.5">
+                <Languages size={18} />
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-slate-800">Spoken Languages</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Select all languages you speak fluently or comfortably converse in. You can choose from popular languages or add your own.
+                </p>
+              </div>
+            </div>
+
+            {/* Currently Selected Badges */}
+            <div className="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-2xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-slate-700">
+                  Selected Languages ({languages.length})
+                </span>
+                {languages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setLanguages([])}
+                    className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+              {languages.length > 0 ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {languages.map(l => (
+                    <span
+                      key={l}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 text-sky-800 border border-sky-200 text-xs font-bold rounded-xl shadow-2xs"
+                    >
+                      <span>{l}</span>
+                      <button
+                        type="button"
+                        onClick={() => setLanguages(languages.filter(x => x !== l))}
+                        className="text-slate-400 hover:text-rose-600 cursor-pointer font-black text-xs"
+                        title={`Remove ${l}`}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic">No languages selected yet. Click from the list below or add custom ones.</p>
+              )}
+            </div>
+
+            {/* Search Input */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">Search & Select Languages</label>
+              <div className="relative">
+                <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search popular languages..."
+                  value={languageSearch}
+                  onChange={(e) => setLanguageSearch(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7]/40 focus:border-[#5D34F7] bg-white transition"
+                />
+                {languageSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setLanguageSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Language Chips */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide block">
+                {languageSearch ? 'Matching Languages' : 'All Available Languages'}
+              </span>
+              <div className="flex flex-wrap gap-2 max-h-56 overflow-y-auto p-2 border border-slate-100 rounded-2xl bg-slate-50/40">
+                {filteredLanguages.map(opt => {
+                  const isSelected = languages.includes(opt);
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          setLanguages(languages.filter(x => x !== opt));
+                        } else {
+                          setLanguages([...languages, opt]);
+                        }
+                      }}
+                      className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#5D34F7] text-white border-[#5D34F7] shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-[#5D34F7]/40'
+                      }`}
+                    >
+                      {isSelected ? '✓ ' : '+ '}{opt}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom Language Addition */}
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">Add Other Language</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customLanguageInput}
+                  onChange={(e) => setCustomLanguageInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = customLanguageInput.trim();
+                      if (val && !languages.some(l => l.toLowerCase() === val.toLowerCase())) {
+                        setLanguages([...languages, val]);
+                        setCustomLanguageInput('');
+                      }
+                    }
+                  }}
+                  placeholder="e.g. Japanese, Mandarin, Spanish..."
+                  className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-[#5D34F7] bg-white transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const val = customLanguageInput.trim();
+                    if (val && !languages.some(l => l.toLowerCase() === val.toLowerCase())) {
+                      setLanguages([...languages, val]);
+                      setCustomLanguageInput('');
+                    }
+                  }}
+                  className="px-4 py-2 bg-[#5D34F7] text-white rounded-xl text-xs font-bold hover:bg-[#4024DB] transition cursor-pointer"
+                >
+                  + Add
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      case 'religion': {
+        const filteredSubCommunityOptions = subCommunityOptions.filter(opt => {
+          if (!subCommunitySearch) return true;
+          return opt.toLowerCase().includes(subCommunitySearch.toLowerCase());
+        });
+
         return (
           <div className="space-y-5">
             <EditField label="Religion">
               <div className="flex flex-wrap gap-2">
                 {ALL_RELIGIONS.map(r => (
-                  <button key={r} type="button" onClick={() => { setReligion(r); setCaste(''); setSubCommunity(''); }}
+                  <button key={r} type="button" onClick={() => {
+                    if (religion !== r) {
+                      setReligion(r);
+                      setCaste('');
+                      setSubCommunity('');
+                      setSubCommunitySearch('');
+                    }
+                  }}
                     className={`px-4 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${religion === r ? 'bg-[#5D34F7] text-white border-[#5D34F7]' : 'bg-white text-slate-600 border-slate-200 hover:border-[#5D34F7]/50'}`}>
                     {r}
                   </button>
                 ))}
               </div>
             </EditField>
+
             {religion && availableCastes.length > 0 && (
               <EditField label="Caste / Community">
                 <div className="flex flex-wrap gap-2">
                   {availableCastes.map(c => (
-                    <button key={c} type="button" onClick={() => { setCaste(c); setSubCommunity(''); }}
+                    <button key={c} type="button" onClick={() => {
+                      if (caste !== c) {
+                        setCaste(c);
+                        setSubCommunitySearch('');
+                      }
+                    }}
                       className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${caste === c ? 'bg-[#5D34F7] text-white border-[#5D34F7]' : 'bg-white text-slate-600 border-slate-200 hover:border-[#5D34F7]/50'}`}>
                       {c}
                     </button>
@@ -916,28 +1889,97 @@ export default function Profile() {
                 </div>
               </EditField>
             )}
-            {caste && availableSubCommunities.length > 0 && (
-              <EditField label="Sub-Community / Sect">
-                <div className="flex flex-wrap gap-2">
-                  {availableSubCommunities.map(s => (
-                    <button key={s} type="button" onClick={() => setSubCommunity(s)}
-                      className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${subCommunity === s ? 'bg-[#5D34F7] text-white border-[#5D34F7]' : 'bg-white text-slate-600 border-slate-200 hover:border-[#5D34F7]/50'}`}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </EditField>
-            )}
+
             {(!religion || availableCastes.length === 0) && (
               <EditField label="Caste (manual)">
                 <input type="text" value={caste} onChange={e => setCaste(e.target.value)} className={inputCls} placeholder="Enter caste/community" />
               </EditField>
             )}
-            <EditField label="Sub-Community (manual)">
-              <input type="text" value={subCommunity} onChange={e => setSubCommunity(e.target.value)} className={inputCls} placeholder="Enter sub-community or sect" />
+
+            <EditField label="Sub-Community / Sect">
+              <div className="space-y-2">
+                {/* Search Filter for large lists */}
+                {subCommunityOptions.length > 10 && (
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Search size={14} />
+                    </div>
+                    <input
+                      type="text"
+                      value={subCommunitySearch}
+                      onChange={e => setSubCommunitySearch(e.target.value)}
+                      placeholder="Search Sub-Community / Caste..."
+                      className="w-full pl-9 pr-8 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5D34F7]/40 focus:border-[#5D34F7] transition-all"
+                    />
+                    {subCommunitySearch && (
+                      <button
+                        type="button"
+                        onClick={() => setSubCommunitySearch('')}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Sub-Community Dropdown - matches Sign Up options & styling */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#5D34F7]">
+                    <User size={18} />
+                  </div>
+                  <select
+                    value={subCommunity}
+                    onChange={(e) => {
+                      setSubCommunity(e.target.value);
+                      if (e.target.value !== 'Other') {
+                        setCustomSubCommunity('');
+                      }
+                    }}
+                    disabled={isLoadingCommunities}
+                    className="w-full pl-11 pr-10 py-3 border border-slate-200 rounded-xl appearance-none bg-white text-sm text-slate-700 hover:border-[#5D34F7]/40 focus:outline-none focus:ring-2 focus:ring-[#5D34F7]/40 focus:border-[#5D34F7] transition-all shadow-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <option value="">Select Sub-Community / Sect</option>
+                    {filteredSubCommunityOptions.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                    {filteredSubCommunityOptions.length === 0 && subCommunitySearch && (
+                      <option value="" disabled>No matching sub-community found</option>
+                    )}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
+                    {isLoadingCommunities ? (
+                      <Loader2 size={16} className="animate-spin text-[#5D34F7]" />
+                    ) : (
+                      <ChevronDown size={18} />
+                    )}
+                  </div>
+                </div>
+
+                {/* Manual entry if 'Other' is selected or custom value */}
+                {(subCommunity === 'Other' || (subCommunity && !subCommunityOptions.includes(subCommunity))) && (
+                  <div className="pt-1">
+                    <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                      Specify Sub-Community Name
+                    </label>
+                    <input
+                      type="text"
+                      value={customSubCommunity || (subCommunity !== 'Other' ? subCommunity : '')}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setCustomSubCommunity(val);
+                        setSubCommunity(val || 'Other');
+                      }}
+                      className={inputCls}
+                      placeholder="Enter custom sub-community or sect"
+                    />
+                  </div>
+                )}
+              </div>
             </EditField>
           </div>
         );
+      }
 
       case 'location':
         return (
@@ -1014,6 +2056,21 @@ export default function Profile() {
                 />
               </EditField>
             </div>
+
+            <EditField label="Time of Birth">
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#5D34F7]">
+                  <Clock size={16} />
+                </div>
+                <input
+                  type="time"
+                  value={timeOfBirth}
+                  onChange={e => setTimeOfBirth(e.target.value)}
+                  className={`${inputCls} pl-10`}
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">Required for Kundali & Astrology matching features.</p>
+            </EditField>
           </div>
         );
 
@@ -1031,7 +2088,99 @@ export default function Profile() {
               </div>
             </EditField>
             <EditField label="College / University">
-              <input type="text" value={college} onChange={e => setCollege(e.target.value)} className={inputCls} placeholder="e.g. IIT Bombay" />
+              <div className="space-y-3">
+                {/* Active selected college badge with Remove College button */}
+                {college ? (
+                  <div className="flex items-center justify-between p-3 bg-purple-50/70 border border-purple-200/80 rounded-2xl">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 bg-[#7209B7]/10 text-[#7209B7] rounded-xl shrink-0">
+                        <GraduationCap size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block leading-none mb-1">
+                          Current College / University
+                        </span>
+                        <span className="text-sm font-extrabold text-slate-800 truncate block">
+                          {college}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowRemoveCollegeModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 hover:border-rose-600 rounded-xl text-xs font-extrabold transition-all duration-200 cursor-pointer shadow-2xs active:scale-95 shrink-0"
+                      title="Remove College from Profile"
+                    >
+                      <Trash2 size={13} />
+                      <span>Remove College</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-500">
+                    <span className="italic">No college / university currently added (Optional)</span>
+                    <span className="text-[11px] text-slate-400">Type or select below</span>
+                  </div>
+                )}
+
+                {/* Text input with embedded clear button */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    list="education-colleges-list"
+                    value={college}
+                    onChange={e => setCollege(e.target.value)}
+                    className={`${inputCls} pr-10`}
+                    placeholder="e.g. IIT Bombay, Delhi University (DU)..."
+                  />
+                  {college && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRemoveCollegeModal(true)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-600 p-1 rounded-lg transition-colors cursor-pointer"
+                      title="Remove / Clear College"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                  <datalist id="education-colleges-list">
+                    {ALL_COLLEGES.filter(c => c !== 'Other').map(c => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </div>
+
+                {/* Popular colleges quick chips */}
+                <div className="pt-1">
+                  <span className="text-[11px] font-bold text-slate-400 block mb-1.5">
+                    Popular Institutions (click to choose):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ALL_COLLEGES.slice(0, 8).map(c => {
+                      const isSelected = college.toLowerCase() === c.toLowerCase();
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              setShowRemoveCollegeModal(true);
+                            } else {
+                              setCollege(c);
+                            }
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#7209B7] text-white shadow-2xs'
+                              : 'bg-slate-100 hover:bg-slate-200/80 text-slate-600'
+                          }`}
+                        >
+                          {isSelected ? `✓ ${c}` : `+ ${c}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </EditField>
             <EditField label="Work Sector">
               <div className="flex flex-wrap gap-2">
@@ -1075,13 +2224,79 @@ export default function Profile() {
             <EditField label="Marital Status">
               <div className="flex flex-wrap gap-2">
                 {ALL_MARITAL_STATUSES.map(ms => (
-                  <button key={ms} type="button" onClick={() => setMaritalStatus(ms)}
+                  <button key={ms} type="button" onClick={() => {
+                    setMaritalStatus(ms);
+                    if (ms === 'Never Married') {
+                      setHasChildren('No');
+                      setChildrenCount(0);
+                      setChildrenStayingWith('');
+                    }
+                  }}
                     className={`px-4 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${maritalStatus === ms ? 'bg-[#4CC9F0] text-white border-[#4CC9F0]' : 'bg-white text-slate-600 border-slate-200 hover:border-[#4CC9F0]/50'}`}>
                     {ms}
                   </button>
                 ))}
               </div>
             </EditField>
+
+            {maritalStatus && maritalStatus !== 'Never Married' && (
+              <div className="p-4 bg-purple-50/50 rounded-2xl border border-purple-100/70 space-y-4 animate-in fade-in duration-200">
+                <EditField label="Have Children / Kids?">
+                  <div className="flex gap-2">
+                    {['No', 'Yes'].map(opt => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => {
+                          setHasChildren(opt);
+                          if (opt === 'No') {
+                            setChildrenCount(0);
+                            setChildrenStayingWith('');
+                          } else if (childrenCount === 0) {
+                            setChildrenCount(1);
+                          }
+                        }}
+                        className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                          hasChildren === opt
+                            ? 'bg-[#5D34F7] text-white border-[#5D34F7] shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                </EditField>
+
+                {hasChildren === 'Yes' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-purple-100">
+                    <EditField label="Number of Children">
+                      <select
+                        value={childrenCount || 1}
+                        onChange={e => setChildrenCount(Number(e.target.value))}
+                        className={selectCls}
+                      >
+                        <option value={1}>1 Child</option>
+                        <option value={2}>2 Children</option>
+                        <option value={3}>3 or More Children</option>
+                      </select>
+                    </EditField>
+
+                    <EditField label="Children Living With">
+                      <select
+                        value={childrenStayingWith}
+                        onChange={e => setChildrenStayingWith(e.target.value)}
+                        className={selectCls}
+                      >
+                        <option value="">Select Living Arrangement</option>
+                        <option value="Me">Living with me</option>
+                        <option value="Separate">Living separately</option>
+                      </select>
+                    </EditField>
+                  </div>
+                )}
+              </div>
+            )}
             <EditField label="Height">
               <select value={height} onChange={e => setHeight(e.target.value)} className={selectCls}>
                 <option value="">Select Height</option>
@@ -1104,12 +2319,7 @@ export default function Profile() {
       case 'hobbies':
         return (
           <div className="space-y-5">
-            {[
-              { title: '🎨 Creative', items: ['Art', 'Painting', 'Music', 'Singing', 'Playing Instrument', 'Writing', 'Photography', 'Dancing', 'Acting', 'Cooking', 'Crafts'] },
-              { title: '🎮 Fun', items: ['Movies', 'Gaming', 'Traveling', 'Comedy', 'Concerts', 'Dining Out', 'Watching Sports', 'Board Games', 'Socializing'] },
-              { title: '💪 Fitness', items: ['Gym', 'Yoga', 'Running', 'Sports', 'Cycling', 'Swimming', 'Trekking', 'Martial Arts', 'Aerobics'] },
-              { title: '📚 Other', items: ['Reading', 'Pets', 'Gardening', 'Volunteering', 'Blogging', 'Astrology', 'Tech/Gadgets', 'Podcasts'] }
-            ].map(group => (
+            {HOBBIES_CATEGORIES.map(group => (
               <div key={group.title} className="space-y-2">
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide">{group.title}</h4>
                 <div className="flex flex-wrap gap-2">
@@ -1119,19 +2329,76 @@ export default function Profile() {
                       <button key={item} type="button"
                         onClick={() => sel ? setHobbies(hobbies.filter(h => h !== item)) : setHobbies([...hobbies, item])}
                         className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${sel ? 'bg-[#5D34F7] text-white border-[#5D34F7]' : 'bg-white text-slate-600 border-slate-200 hover:border-[#5D34F7]/40'}`}>
-                        {item}
+                        {sel ? '✓ ' : ''}{item}
                       </button>
                     );
                   })}
                 </div>
               </div>
             ))}
+
+            {/* Custom Hobby Input */}
+            <div className="pt-2">
+              <label className="text-xs font-bold text-slate-600 block mb-1.5">Add Custom Hobby / Interest</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customHobbyInput}
+                  onChange={(e) => setCustomHobbyInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = customHobbyInput.trim();
+                      if (val && !hobbies.some(h => h.toLowerCase() === val.toLowerCase())) {
+                        setHobbies([...hobbies, val]);
+                        setCustomHobbyInput('');
+                      }
+                    }
+                  }}
+                  placeholder="e.g. Calligraphy, Astronomy, Baking..."
+                  className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-[#5D34F7] bg-white transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const val = customHobbyInput.trim();
+                    if (val && !hobbies.some(h => h.toLowerCase() === val.toLowerCase())) {
+                      setHobbies([...hobbies, val]);
+                      setCustomHobbyInput('');
+                    }
+                  }}
+                  className="px-4 py-2 bg-[#5D34F7] text-white rounded-xl text-xs font-bold hover:bg-[#4024DB] transition cursor-pointer"
+                >
+                  + Add
+                </button>
+              </div>
+            </div>
+
             {hobbies.length > 0 && (
-              <div className="pt-2 border-t border-slate-100">
-                <p className="text-xs text-slate-500 font-medium mb-2">Selected ({hobbies.length})</p>
+              <div className="pt-3 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-slate-600 font-bold">Selected Hobbies ({hobbies.length})</p>
+                  <button
+                    type="button"
+                    onClick={() => setHobbies([])}
+                    className="text-[11px] text-rose-600 hover:underline cursor-pointer font-semibold"
+                  >
+                    Clear all
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {hobbies.map(h => (
-                    <span key={h} className="px-3 py-1 bg-[#5D34F7]/10 text-[#5D34F7] text-xs font-semibold rounded-full">{h}</span>
+                    <span key={h} className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#5D34F7]/10 text-[#5D34F7] text-xs font-semibold rounded-full">
+                      {h}
+                      <button
+                        type="button"
+                        onClick={() => setHobbies(hobbies.filter(x => x !== h))}
+                        className="hover:text-rose-600 cursor-pointer font-black text-[11px]"
+                        title="Remove"
+                      >
+                        ✕
+                      </button>
+                    </span>
                   ))}
                 </div>
               </div>
@@ -1154,17 +2421,27 @@ export default function Profile() {
                 {['Employed', 'Business Owner', 'Retired', 'Passed Away'].map(v => <option key={v} value={v}>{v}</option>)}
               </select>
             </EditField>
-            <div className="grid grid-cols-2 gap-4">
-              <EditField label="Number of Sisters">
-                <select value={sistersCount} onChange={e => setSistersCount(Number(e.target.value))} className={selectCls}>
-                  {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-              </EditField>
-              <EditField label="Number of Brothers">
-                <select value={brothersCount} onChange={e => setBrothersCount(Number(e.target.value))} className={selectCls}>
-                  {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-              </EditField>
+            <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-100 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                  <Users size={14} className="text-[#3F37C9]" /> Siblings
+                </label>
+                <span className="text-xs font-black text-[#3F37C9] bg-white px-2.5 py-1 rounded-lg border border-slate-200/60 shadow-2xs">
+                  {formatSiblings({ profile: { brothersCount, sistersCount } })}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <EditField label="Number of Brothers">
+                  <select value={brothersCount} onChange={e => setBrothersCount(Number(e.target.value))} className={selectCls}>
+                    {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </EditField>
+                <EditField label="Number of Sisters">
+                  <select value={sistersCount} onChange={e => setSistersCount(Number(e.target.value))} className={selectCls}>
+                    {[0,1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </EditField>
+              </div>
             </div>
             <EditField label="Lives With Family?">
               <div className="flex gap-3">
@@ -1197,12 +2474,39 @@ export default function Profile() {
       case 'astrology':
         return (
           <div className="space-y-5">
+            <div className="p-4 bg-purple-50/70 rounded-2xl border border-purple-100 flex items-start gap-3">
+              <Sparkles className="w-5 h-5 text-[#9333EA] shrink-0 mt-0.5" />
+              <div className="text-xs text-slate-600">
+                <p className="font-bold text-slate-800 mb-1">Birth Details for Kundali & Astrology</p>
+                <p>
+                  Time and City of Birth are used for astrological calculations, horoscope matching, and Kundali analysis.
+                </p>
+              </div>
+            </div>
+
             <EditField label="Time of Birth">
-              <input type="time" value={timeOfBirth} onChange={e => setTimeOfBirth(e.target.value)} className={inputCls} />
-              <p className="text-[10px] text-slate-400 mt-1">Required for Kundali matching features.</p>
+              <input
+                type="time"
+                value={timeOfBirth}
+                onChange={e => setTimeOfBirth(e.target.value)}
+                className={inputCls}
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Enter your exact time of birth if known (format: HH:MM).
+              </p>
             </EditField>
+
             <EditField label="City of Birth">
-              <input type="text" value={cityOfBirth} onChange={e => setCityOfBirth(e.target.value)} className={inputCls} placeholder="e.g. Mumbai" />
+              <input
+                type="text"
+                value={cityOfBirth}
+                onChange={e => setCityOfBirth(e.target.value)}
+                className={inputCls}
+                placeholder={city || "e.g. Mumbai"}
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                City where you were born (defaults to current city: <strong>{city || 'Not set'}</strong> if left unchanged).
+              </p>
             </EditField>
           </div>
         );
@@ -1272,38 +2576,146 @@ export default function Profile() {
                   </linearGradient>
                 </defs>
               </svg>
-              <span>{id ? `${fullName || p.name || 'Member'}'s Profile` : 'My Profile & Preferences'}</span>
+              <span>{id ? 'Profile Details' : 'My Profile & Preferences'}</span>
+              {isPhotoVerified(profile) && (
+                <PhotoVerifiedBadge user={profile} variant="badge" />
+              )}
             </h1>
-            <p className="text-slate-400 text-xs font-bold uppercase mt-1 tracking-wider">
-              {id ? `UID: ${profile?.uid || id}` : 'Manage your personal matrimony portfolio and search filters'}
-            </p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-1">
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">
+                {id ? `UID: ${profile?.uid || id}` : 'Manage your personal matrimony portfolio and search filters'}
+              </p>
+              {famId && (
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-300 hidden sm:inline">•</span>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyFamId(famId, e)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[#5D34F7]/10 hover:bg-[#5D34F7]/20 text-[#5D34F7] text-[11px] font-black tracking-wider rounded-xl border border-[#5D34F7]/20 uppercase transition-all cursor-pointer active:scale-95 group/copy"
+                    title="Click to copy FAM ID"
+                    aria-label="Click to copy FAM ID"
+                  >
+                    <span>FAM ID: <span className="font-mono">{famId}</span></span>
+                    {copiedFamId === famId ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-600 font-extrabold normal-case text-[10px]">
+                        <Check size={12} className="stroke-[2.5]" />
+                        <span>Copied!</span>
+                      </span>
+                    ) : (
+                      <Copy size={12} className="opacity-75 group-hover/copy:opacity-100" />
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap items-center">
             {id ? (
               <>
                 <button
                   onClick={() => navigate(-1)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
                 >
                   ← Back
                 </button>
+                {/* Feature 7: Send Interest, Chat, and Call Consultant on Profile Details */}
+                <button
+                  type="button"
+                  disabled={isSendingOtherInterest || otherUserInterestSent}
+                  onClick={async () => {
+                    if (otherUserInterestSent) return;
+                    setIsSendingOtherInterest(true);
+                    try {
+                      await api.post('/users/interests', { receiverId: id });
+                      setOtherUserInterestSent(true);
+                    } catch (err) {
+                      console.error('Error sending interest from profile:', err);
+                    } finally {
+                      setIsSendingOtherInterest(false);
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95 ${
+                    otherUserInterestSent
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-300'
+                      : 'bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white shadow-pink-500/25'
+                  }`}
+                  title={otherUserInterestSent ? 'Interest sent successfully' : 'Express connection interest'}
+                >
+                  <Heart size={15} className={otherUserInterestSent ? 'text-emerald-600 fill-emerald-600' : 'fill-white'} />
+                  <span>{otherUserInterestSent ? 'Interest Sent ✓' : 'Send Interest'}</span>
+                </button>
+                <button
+                  onClick={() => navigate('/messages', { state: { contactId: id } })}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-[#5D34F7] to-[#4024DB] hover:opacity-95 text-white rounded-xl text-xs sm:text-sm font-extrabold shadow-sm shadow-[#5D34F7]/25 transition duration-200 cursor-pointer active:scale-95"
+                  title="Direct Message / Chat"
+                >
+                  <MessageSquare size={15} /> <span>Chat</span>
+                </button>
+                {/* VIP Consultant Button for VIP users */}
+                {(viewerUser?.premiumMembership?.isPremium && (viewerUser?.premiumMembership?.managedByUs || viewerUser?.premiumMembership?.planType?.toLowerCase().includes('vip'))) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowVipConsultantModal(true)}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 rounded-xl text-xs sm:text-sm font-black shadow-md shadow-amber-500/20 transition duration-200 cursor-pointer active:scale-95"
+                    title="Call VIP Relationship Consultant for personalized assistance"
+                  >
+                    <span>👑</span>
+                    <span>Call Consultant</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('contact-info-section');
+                    if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      el.classList.add('ring-4', 'ring-emerald-400/50', 'transition-all');
+                      setTimeout(() => el.classList.remove('ring-4', 'ring-emerald-400/50'), 2500);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-xl text-xs sm:text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
+                  title="View contact information"
+                >
+                  <Phone size={15} /> <span>Contact Info</span>
+                </button>
                 <button
                   onClick={() => handleShareProfile(profile)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-50 border border-indigo-100 text-[#5D34F7] hover:bg-[#5D34F7] hover:text-white rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-50 border border-indigo-100 text-[#5D34F7] hover:bg-[#5D34F7] hover:text-white rounded-xl text-xs sm:text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
                 >
-                  <Share2 size={16} /> Share
+                  <Share2 size={15} /> <span>Share</span>
                 </button>
                 <button
                   onClick={() => handleDownloadProfile(profile)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-violet-50 border border-violet-100 text-violet-600 hover:bg-violet-600 hover:text-white rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-violet-50 border border-violet-100 text-violet-600 hover:bg-violet-600 hover:text-white rounded-xl text-xs sm:text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
                 >
-                  <Download size={16} /> Download
+                  <Download size={15} /> <span>Download</span>
                 </button>
               </>
             ) : activeTab === 'profile' && (
               !isEditing ? (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => setShowVipShaadiModal(true)}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-amber-400 via-amber-300 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95 border border-amber-300"
+                    title="VIP Shaadi – Get Invited"
+                  >
+                    <span>👑</span> VIP Shaadi – {vipEnquiryData?.hasActiveEnquiry ? 'Status' : 'Get Invited'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById('contact-info-section');
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        el.classList.add('ring-4', 'ring-emerald-400/50', 'transition-all');
+                        setTimeout(() => el.classList.remove('ring-4', 'ring-emerald-400/50'), 2500);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
+                    title="View contact information"
+                  >
+                    <Phone size={16} /> Contact Info
+                  </button>
                   <button
                     onClick={() => handleShareProfile(profile)}
                     className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-50 border border-indigo-100 text-[#5D34F7] hover:bg-[#5D34F7] hover:text-white rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
@@ -1315,6 +2727,27 @@ export default function Profile() {
                     className="flex items-center gap-1.5 px-4 py-2.5 bg-violet-50 border border-violet-100 text-violet-600 hover:bg-violet-600 hover:text-white rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95"
                   >
                     <Download size={16} /> Download
+                  </button>
+                  <button
+                    onClick={() => navigate('/legal/safety-center')}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-amber-50/80 border border-amber-200/70 text-amber-800 hover:bg-[#5D34F7] hover:text-white hover:border-[#5D34F7] rounded-xl text-sm font-extrabold shadow-2xs transition duration-200 cursor-pointer active:scale-95"
+                    title="View Safety Center"
+                  >
+                    <ShieldCheck size={16} className="text-amber-600" /> Safety Center
+                  </button>
+                  <button
+                    onClick={() => navigate('/legal/terms-conditions')}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-50 border border-slate-200 text-slate-700 hover:bg-[#5D34F7] hover:text-white hover:border-[#5D34F7] rounded-xl text-sm font-extrabold shadow-2xs transition duration-200 cursor-pointer active:scale-95"
+                    title="View Terms & Conditions"
+                  >
+                    <FileText size={16} /> Terms & Conditions
+                  </button>
+                  <button
+                    onClick={() => navigate('/legal/privacy-policy')}
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-50 border border-slate-200 text-slate-700 hover:bg-[#5D34F7] hover:text-white hover:border-[#5D34F7] rounded-xl text-sm font-extrabold shadow-2xs transition duration-200 cursor-pointer active:scale-95"
+                    title="View Privacy Policy"
+                  >
+                    <ShieldCheck size={16} className="text-emerald-600" /> Privacy Policy
                   </button>
                   <button
                     onClick={() => { setIsEditing(true); setActiveEditCategory('basic'); }}
@@ -1360,10 +2793,17 @@ export default function Profile() {
         </div>
       )}
 
+      {/* Remove College success toast */}
+      {removeCollegeSuccess && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-lg text-sm font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-300">
+          <Check size={16} /> College removed successfully!
+        </div>
+      )}
+
       {/* Tabs Switcher */}
       {!id && (
         <div className="max-w-7xl mx-auto lg:mx-0 lg:ml-6 xl:ml-10 px-4 mt-6 lg:px-8">
-          <div className="bg-white rounded-3xl p-2 shadow-sm border border-slate-100 flex gap-1 w-full sm:w-fit">
+          <div className="bg-white rounded-3xl p-2 shadow-sm border border-slate-100 flex gap-1 w-full sm:w-fit flex-wrap">
             <button
               onClick={() => { setActiveTab('profile'); setIsEditing(false); }}
               className={`px-6 py-3 rounded-2xl text-xs font-black tracking-wide uppercase transition-all duration-200 flex-1 sm:flex-initial cursor-pointer ${
@@ -1376,13 +2816,32 @@ export default function Profile() {
             </button>
             <button
               onClick={() => setActiveTab('preferences')}
-              className={`px-6 py-3 rounded-2xl text-xs font-black tracking-wide uppercase transition-all duration-200 flex-1 sm:flex-initial cursor-pointer ${
+              className={`px-6 py-3 rounded-2xl text-xs font-black tracking-wide uppercase transition-all duration-200 flex-1 sm:flex-initial cursor-pointer inline-flex items-center justify-center gap-1.5 group ${
                 activeTab === 'preferences'
                   ? 'bg-gradient-to-r from-[#5D34F7] to-[#4024DB] text-white shadow-md shadow-[#5D34F7]/15'
                   : 'bg-transparent text-gray-600 hover:bg-slate-50 hover:text-slate-800'
               }`}
             >
-              Partner Preferences
+              <span>Partner Preferences</span>
+              <ArrowRight size={13} className={`transition-transform duration-200 ${activeTab === 'preferences' ? 'translate-x-0.5' : 'opacity-70 group-hover:translate-x-1 group-hover:opacity-100'}`} />
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('profile');
+                setIsEditing(false);
+                setTimeout(() => {
+                  const el = document.getElementById('contact-info-section');
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('ring-4', 'ring-emerald-400/50', 'transition-all');
+                    setTimeout(() => el.classList.remove('ring-4', 'ring-emerald-400/50'), 2500);
+                  }
+                }, 50);
+              }}
+              className="px-6 py-3 rounded-2xl text-xs font-black tracking-wide uppercase transition-all duration-200 flex-1 sm:flex-initial cursor-pointer bg-transparent text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 flex items-center justify-center gap-1.5"
+            >
+              <Phone size={14} className="text-emerald-600" />
+              <span>Contact Info</span>
             </button>
           </div>
         </div>
@@ -1412,20 +2871,36 @@ export default function Profile() {
                     {/* Profile snapshot */}
                     <div className="p-5 bg-gradient-to-br from-[#5D34F7]/10 to-[#805CFF]/5 border-b border-slate-100">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#5D34F7]/10 border-2 border-[#5D34F7]/20 flex-shrink-0 relative">
-                          {p.photos && p.photos[0] ? (
+                        <div 
+                          onClick={() => displayPhotos && displayPhotos.length > 0 && handleOpenFullScreenImage(0)}
+                          className={`w-12 h-12 rounded-xl overflow-hidden bg-[#5D34F7]/10 border-2 border-[#5D34F7]/20 flex-shrink-0 relative ${displayPhotos && displayPhotos.length > 0 ? 'cursor-pointer hover:opacity-95' : ''}`}
+                          title={displayPhotos && displayPhotos.length > 0 ? 'Click to view photo in full screen' : ''}
+                        >
+                          {displayPhotos && displayPhotos[0] ? (
                             <>
-                              <img src={getPhotoUrl(p.photos[0])} alt="Avatar" className="w-full h-full object-cover" />
-                              {((typeof p.photos[0] === 'string' || (typeof p.photos[0] === 'object' && p.photos[0].verificationStatus !== 'approved' && p.photos[0].approved !== true))) && (
-                                <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center backdrop-blur-[1px]">
-                                  <span className="bg-amber-500 text-white text-[6px] font-black px-1 py-0.5 rounded shadow-sm">PENDING</span>
+                              <img 
+                                src={getPhotoUrl(displayPhotos[0], p.gender)} 
+                                alt="Avatar" 
+                                onError={(e) => handleImageError(e, p.gender)}
+                                className="w-full h-full object-cover" 
+                              />
+                              {getPhotoStatus(displayPhotos[0]) === 'rejected' && (
+                                <div className="absolute bottom-0 inset-x-0 bg-red-600/90 text-white text-[6px] font-black py-0.5 text-center leading-none uppercase pointer-events-none z-10">
+                                  Rejected
+                                </div>
+                              )}
+                              {getPhotoStatus(displayPhotos[0]) === 'pending' && (
+                                <div className="absolute bottom-0 inset-x-0 bg-amber-500/90 text-white text-[6px] font-black py-0.5 text-center leading-none uppercase pointer-events-none z-10">
+                                  Pending
                                 </div>
                               )}
                             </>
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center text-[#5D34F7]">
-                              <User size={22} />
-                            </div>
+                            <img 
+                              src={getDefaultAvatar(p.gender)} 
+                              alt="Avatar" 
+                              className="w-full h-full object-cover" 
+                            />
                           )}
                         </div>
                         <div className="min-w-0">
@@ -1522,19 +2997,30 @@ export default function Profile() {
                           {photos.length > 0 && (
                             <div className="flex flex-wrap gap-2.5">
                               {photos.map((url, index) => {
-                                const isPending = typeof url === 'string' || (typeof url === 'object' && url.verificationStatus !== 'approved' && url.approved !== true);
+                                const photoStatus = getPhotoStatus(url);
                                 return (
-                                <div key={index} className="relative w-20 h-24 rounded-xl overflow-hidden border border-gray-200">
-                                  <img src={getPhotoUrl(url)} alt={`Gallery ${index}`} className="w-full h-full object-cover" />
-                                  {isPending && (
-                                    <div className="absolute inset-0 bg-slate-900/40 flex items-center justify-center backdrop-blur-[1px]">
-                                      <span className="bg-amber-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-sm text-center leading-tight">PENDING<br/>APPROVAL</span>
+                                <div key={index} className="relative w-20 h-24 rounded-xl overflow-hidden border border-gray-200 group">
+                                  <img 
+                                    src={getPhotoUrl(url, p.gender)} 
+                                    alt={`Gallery ${index}`} 
+                                    onError={(e) => handleImageError(e, p.gender)}
+                                    className="w-full h-full object-cover" 
+                                  />
+                                  {photoStatus === 'rejected' && (
+                                    <div className="absolute bottom-0 inset-x-0 bg-red-600/90 text-white text-[7px] font-black py-0.5 text-center leading-none uppercase pointer-events-none z-10">
+                                      Rejected
+                                    </div>
+                                  )}
+                                  {photoStatus === 'pending' && (
+                                    <div className="absolute bottom-0 inset-x-0 bg-amber-500/90 text-white text-[7px] font-black py-0.5 text-center leading-none uppercase pointer-events-none z-10">
+                                      Pending
                                     </div>
                                   )}
                                   <button
                                     type="button"
                                     onClick={() => setPhotos(photos.filter((_, i) => i !== index))}
-                                    className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors z-10"
+                                    className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors z-20 cursor-pointer shadow-sm"
+                                    title="Delete photo"
                                   >
                                     <Trash2 size={10} />
                                   </button>
@@ -1581,13 +3067,23 @@ export default function Profile() {
                           </button>
                         )}
                       </div>
-                      <button
-                        onClick={handleSave}
-                        disabled={isSaving}
-                        className="flex items-center gap-1.5 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl text-sm font-extrabold hover:opacity-95 shadow-sm transition cursor-pointer disabled:opacity-50 active:scale-95"
-                      >
-                        <Check size={15} /> {isSaving ? 'Saving...' : 'Save All Changes'}
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => { setIsEditing(false); fetchProfile(); }}
+                          disabled={isSaving}
+                          className="px-4 py-2.5 text-sm font-semibold text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSave}
+                          disabled={isSaving}
+                          className="flex items-center gap-1.5 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-xl text-sm font-extrabold hover:opacity-95 shadow-sm transition cursor-pointer disabled:opacity-50 active:scale-95"
+                        >
+                          <Check size={15} /> {isSaving ? 'Saving...' : 'Save All Changes'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </main>
@@ -1602,68 +3098,173 @@ export default function Profile() {
               {/* Left Column: Photo & Gallery */}
               <aside className="lg:col-span-5 space-y-6 w-full">
 
+                {/* VIP SHAADI – GET INVITED BANNER */}
+                {!id && (
+                  <div className="rounded-3xl p-5 sm:p-6 bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900 border-2 border-amber-400/80 shadow-xl text-white relative overflow-hidden space-y-3.5">
+                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-500/20 rounded-full blur-2xl pointer-events-none" />
+                    <div className="relative z-10 flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+                          <span>👑</span>
+                          <span>VIP Shaadi • By Invitation Only</span>
+                        </div>
+                        <h3 className="text-lg sm:text-xl font-black text-white tracking-tight">
+                          VIP Shaadi – Get Invited
+                        </h3>
+                        <p className="text-slate-300 text-xs font-medium leading-relaxed">
+                          Personalized, discreet matchmaking managed by senior certified relationship managers.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="relative z-10 pt-2 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                      <div className="text-xs text-slate-300">
+                        {vipEnquiryData?.hasActiveEnquiry ? (
+                          <span className="flex items-center gap-1.5 font-bold text-amber-300">
+                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                            <span>Enquiry Active ({vipEnquiryData.data?.status || 'Under Review'})</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-semibold">100% confidential & verified matching</span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowVipShaadiModal(true)}
+                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-amber-300 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 font-black text-xs uppercase tracking-wider shadow-md shadow-amber-500/20 transition cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 border border-amber-300"
+                      >
+                        <span>👑</span>
+                        <span>{vipEnquiryData?.hasActiveEnquiry ? 'View VIP Status' : 'Get Invited'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* PROFILE HEADER & PHOTOS */}
                 <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-6">
                   {/* Main Photo & Name */}
                   <div className="flex items-center gap-4">
-                    {/* Avatar with direct upload overlay */}
-                    <div className="relative w-24 h-24 rounded-2xl overflow-hidden bg-[#5D34F7]/10 border border-[#5D34F7]/20 flex-shrink-0 group">
-                      {p.photos && p.photos[0] ? (
-                        <>
-                          <img src={getPhotoUrl(p.photos[0])} alt="Avatar" className="w-full h-full object-cover" />
-                          {((typeof p.photos[0] === 'string' || (typeof p.photos[0] === 'object' && p.photos[0].verificationStatus !== 'approved' && p.photos[0].approved !== true))) && (
-                            <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center backdrop-blur-[1px]">
-                              <span className="bg-amber-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-sm text-center leading-tight">PENDING<br/>APPROVAL</span>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-[#5D34F7]">
-                          <User size={40} />
-                        </div>
-                      )}
-                      {/* Camera overlay for direct upload */}
-                      {!id && (
-                        <>
+                    {/* Feature 19: Avatar with dedicated Change DP button and modal */}
+                    <div className="flex flex-col items-center shrink-0">
+                      <div 
+                        onClick={() => (!id ? setChangeDpModalOpen(true) : (displayPhotos && displayPhotos.length > 0 && handleOpenFullScreenImage(0)))}
+                        className={`relative w-24 h-24 rounded-2xl overflow-hidden bg-[#5D34F7]/10 border border-[#5D34F7]/20 group ${!id || (displayPhotos && displayPhotos.length > 0) ? 'cursor-pointer hover:opacity-95' : ''}`}
+                        title={id ? 'Click to view photo in full screen' : 'Click to change profile picture'}
+                      >
+                        {displayPhotos && displayPhotos[0] ? (
+                          <>
+                            <img 
+                              src={getPhotoUrl(displayPhotos[0], p.gender)} 
+                              alt="Avatar" 
+                              onError={(e) => handleImageError(e, p.gender)}
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
+                            />
+                            {isPhotoVerified(profile) && (
+                              <div className="absolute top-2 right-2 bg-emerald-600/95 backdrop-blur-md text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-md z-10 flex items-center gap-1 pointer-events-none border border-white/20 select-none">
+                                <Check size={11} className="stroke-[3]" />
+                                <span>Verified</span>
+                              </div>
+                            )}
+                            {getPhotoStatus(displayPhotos[0]) === 'rejected' && (
+                              <div className="absolute bottom-0 inset-x-0 bg-red-600/90 text-white text-[8px] font-black py-0.5 text-center leading-none uppercase pointer-events-none z-10">
+                                Rejected
+                              </div>
+                            )}
+                            {getPhotoStatus(displayPhotos[0]) === 'pending' && (
+                              <div className="absolute bottom-0 inset-x-0 bg-amber-500/90 text-white text-[8px] font-black py-0.5 text-center leading-none uppercase pointer-events-none z-10">
+                                Pending
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <img 
+                            src={getDefaultAvatar(p.gender)} 
+                            alt="Avatar" 
+                            className="w-full h-full object-cover" 
+                          />
+                        )}
+                        {/* Camera overlay */}
+                        {!id && (
                           <div
-                            onClick={() => document.getElementById('avatar-direct-upload').click()}
-                            className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer rounded-2xl"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setChangeDpModalOpen(true);
+                            }}
+                            className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer rounded-2xl z-20"
+                            title="Change Profile Picture (DP)"
                           >
                             <Camera size={20} className="text-white" />
-                            <span className="text-white text-[9px] font-bold mt-1">Change</span>
+                            <span className="text-white text-[10px] font-bold mt-1">Change DP</span>
                           </div>
-                          <input
-                            type="file"
-                            id="avatar-direct-upload"
-                            className="hidden"
-                            accept="image/*"
-                            onChange={async (e) => {
-                              const file = e.target.files[0];
-                              if (file) {
-                                setIsSaving(true);
-                                setError('');
-                                try {
-                                  const uploadedNames = await uploadFiles([file]);
-                                  const newPhotos = [uploadedNames[0], ...photos.filter((_, i) => i !== 0)];
-                                  setPhotos(newPhotos);
-                                  await savePhotosDirectly(newPhotos);
-                                } catch (err) {
-                                  setError(err.response?.data?.message || err.message || 'Failed to upload avatar.');
-                                } finally {
-                                  setIsSaving(false);
-                                }
-                              }
-                            }}
-                          />
-                        </>
+                        )}
+                      </div>
+                      {!id && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setChangeDpModalOpen(true);
+                          }}
+                          className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-[#5D34F7]/5 text-[#5D34F7] border border-[#5D34F7]/30 hover:border-[#5D34F7] rounded-lg text-[11px] font-bold transition duration-150 cursor-pointer active:scale-95 shadow-2xs"
+                          title="Change Profile Picture (DP)"
+                        >
+                          <Camera size={12} />
+                          <span>Change DP</span>
+                        </button>
                       )}
                     </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-gray-900 flex items-center gap-1.5">
-                        {p.name || 'Anonymous User'}
-                        {profile?.verificationStatus === 'approved' && <BadgeCheck size={18} className="text-blue-500" title="Verified Profile" />}
-                      </h2>
-                      <p className="text-sm text-gray-500 font-medium">UID: {profile?.uid || 'N/A'}</p>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-black text-slate-800 tracking-tight">
+                          UID: {profile?.uid || 'N/A'}
+                        </span>
+                        <PhotoVerifiedBadge user={profile} variant="badge" />
+                        {!isPhotoVerified(profile) && !id && getPhotoVerificationStatus(profile) === 'pending' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs animate-pulse">
+                            <Clock size={11} className="text-amber-600" />
+                            <span>Photo Verification Pending</span>
+                          </span>
+                        )}
+                        {!isPhotoVerified(profile) && !id && getPhotoVerificationStatus(profile) === 'rejected' && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-50 text-rose-800 border border-rose-300 shadow-2xs">
+                            <XCircle size={11} className="text-rose-600" />
+                            <span>Photo Verification Failed</span>
+                          </span>
+                        )}
+                      </div>
+                      {famId && (
+                        <div className="pt-1 flex items-center">
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopyFamId(famId, e)}
+                            className="px-3 py-1.5 bg-[#5D34F7]/10 hover:bg-[#5D34F7]/20 text-[#5D34F7] text-xs font-black tracking-wider rounded-xl border border-[#5D34F7]/20 uppercase flex items-center gap-2 transition-all cursor-pointer active:scale-95 group/copy shadow-2xs"
+                            title="Copy FAM ID to clipboard"
+                            aria-label="Copy FAM ID"
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-black opacity-70">FAM ID:</span>
+                              <span className="font-mono font-black">{famId}</span>
+                            </span>
+                            {copiedFamId === famId ? (
+                              <span className="inline-flex items-center gap-1 text-emerald-600 font-extrabold normal-case text-[11px]">
+                                <Check size={13} className="stroke-[2.5]" />
+                                <span>Copied!</span>
+                              </span>
+                            ) : (
+                              <Copy size={13} className="opacity-70 group-hover/copy:opacity-100" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+                      {formatProfileCreatedBy(p.profileFor || profile?.profileFor || profileFor) && (
+                        <div className="pt-1 flex items-center">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200/80 shadow-2xs">
+                            <Users size={13} className="text-[#5D34F7]" />
+                            <span>Profile Created By: <strong className="font-black text-slate-900">{formatProfileCreatedBy(p.profileFor || profile?.profileFor || profileFor)}</strong></span>
+                          </span>
+                        </div>
+                      )}
                       <div className="flex flex-col items-start gap-2 mt-2">
                         <div className="flex flex-wrap gap-2">
                           <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full border ${
@@ -1675,7 +3276,7 @@ export default function Profile() {
                           </span>
                           {profile?.isFeatured && (
                             <span className="inline-block px-3 py-1 text-xs font-semibold rounded-full border bg-gradient-to-r from-amber-500 to-orange-500 text-white border-amber-600 shadow-sm">
-                              ⭐ Featured Profile
+                              ⭐ Highlight My Profile
                             </span>
                           )}
                         </div>
@@ -1691,109 +3292,457 @@ export default function Profile() {
                     </div>
                   </div>
 
-                  {/* Photo Gallery with Direct Upload */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
-                        <Camera size={18} className="text-[#5D34F7]" /> Profile Photos
-                      </label>
+                  {/* Photo Gallery with Direct Upload - Up to 10 Photos */}
+                  <div className="space-y-3.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                          <Camera size={18} className="text-[#5D34F7]" /> Profile Photos
+                        </label>
+                        <PhotoVerifiedBadge user={profile} variant="badge" />
+                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${
+                          displayPhotos.length >= 10
+                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                            : 'bg-[#5D34F7]/10 text-[#5D34F7] border border-[#5D34F7]/20'
+                        }`}>
+                          {displayPhotos.length}/10 uploaded
+                        </span>
+                      </div>
+
                       {/* Always-visible Add Photo button for own profile */}
                       {!id && (
-                        <>
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => document.getElementById('gallery-direct-upload').click()}
-                            disabled={isSaving}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5D34F7]/10 text-[#5D34F7] rounded-lg text-xs font-bold hover:bg-[#5D34F7]/20 transition cursor-pointer disabled:opacity-50 active:scale-95"
+                            onClick={() => {
+                              if (displayPhotos.length >= 10) {
+                                setError('You can upload a maximum of 10 pictures per account.');
+                                return;
+                              }
+                              document.getElementById('gallery-direct-upload').click();
+                            }}
+                            disabled={isSaving || displayPhotos.length >= 10}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer active:scale-95 ${
+                              displayPhotos.length >= 10
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                                : 'bg-[#5D34F7]/10 text-[#5D34F7] hover:bg-[#5D34F7]/20'
+                            }`}
+                            title={displayPhotos.length >= 10 ? 'You can upload a maximum of 10 pictures per account.' : 'Add profile picture'}
                           >
                             <Plus size={13} />
-                            {isSaving ? 'Saving...' : 'Add Photo'}
+                            {isSaving ? 'Saving...' : displayPhotos.length >= 10 ? 'Limit Reached (10/10)' : `Add Photo (${10 - displayPhotos.length} left)`}
                           </button>
                           <input
                             type="file"
                             id="gallery-direct-upload"
                             className="hidden"
-                            accept="image/*"
+                            accept="image/png,image/jpeg,image/jpg,image/webp"
                             multiple
-                            onChange={async (e) => {
-                              const files = Array.from(e.target.files);
-                              if (files.length === 0) return;
-                              setIsSaving(true);
-                              setError('');
-                              try {
-                                const uploadedNames = await uploadFiles(files);
-                                const newPhotos = [...photos, ...uploadedNames];
-                                setPhotos(newPhotos);
-                                await savePhotosDirectly(newPhotos);
-                              } catch (err) {
-                                setError(err.response?.data?.message || err.message || 'Failed to upload images.');
-                              } finally {
-                                setIsSaving(false);
-                              }
-                            }}
+                            onChange={(e) => handleUploadGalleryPhotos(e.target.files)}
                           />
-                        </>
+                        </div>
                       )}
                     </div>
 
-                    <div className="flex flex-wrap gap-2.5">
-                      {p.photos && p.photos.length > 0 ? (
-                        p.photos.map((url, index) => {
-                          const isPending = (typeof url === 'string' || (typeof url === 'object' && url.verificationStatus !== 'approved' && url.approved !== true));
+                    {/* Limit reached informative notice */}
+                    {!id && displayPhotos.length >= 10 && (
+                      <div className="p-3 bg-amber-50/90 rounded-2xl border border-amber-200 text-amber-900 text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in duration-200">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle size={15} className="text-amber-600 shrink-0" />
+                          <span>You can upload a maximum of 10 pictures per account. Delete an existing photo to add a new one.</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Responsive Picture Gallery Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                      {displayPhotos && displayPhotos.length > 0 ? (
+                        displayPhotos.map((url, index) => {
+                          const photoStatus = getPhotoStatus(url);
+                          const isPrimary = index === 0;
                           return (
-                          <div key={index} className="relative w-20 h-24 rounded-xl overflow-hidden border border-gray-200 group">
-                            <img src={getPhotoUrl(url)} alt={`Gallery ${index}`} className="w-full h-full object-cover" />
-                            {isPending && (
-                               <div className="absolute inset-0 bg-slate-900/40 flex items-center justify-center backdrop-blur-[1px] pointer-events-none">
-                                 <span className="bg-amber-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-sm text-center leading-tight">PENDING<br/>APPROVAL</span>
-                               </div>
-                            )}
-                            {/* Delete photo overlay */}
-                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 rounded-xl z-10">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const newPhotos = (p.photos || []).filter((_, i) => i !== index);
-                                  setPhotos(newPhotos);
-                                  savePhotosDirectly(newPhotos);
-                                }}
-                                className="p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
-                              >
-                                <Trash2 size={12} />
-                              </button>
+                            <div
+                              key={index}
+                              onClick={() => handleOpenFullScreenImage(index)}
+                              className={`relative aspect-[3/4] rounded-2xl overflow-hidden border bg-slate-100 group cursor-pointer hover:shadow-md transition-all duration-200 ${
+                                isPrimary ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-gray-200 hover:border-[#5D34F7]/50'
+                              }`}
+                              title={isPrimary ? 'Primary Profile Picture (Click to view full screen)' : 'Click to view photo in full screen'}
+                            >
+                              <img
+                                src={getPhotoUrl(url, p.gender)}
+                                alt={`Gallery ${index}`}
+                                onError={(e) => handleImageError(e, p.gender)}
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              />
+
+                              {/* Primary Badge */}
+                              {isPrimary ? (
+                                <div className="absolute top-2 left-2 z-20 flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[9px] font-black uppercase tracking-wider shadow-sm pointer-events-none">
+                                  <Star size={10} className="fill-white" /> Primary
+                                </div>
+                              ) : !id ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSetPrimaryPhoto(index);
+                                  }}
+                                  className="absolute top-2 left-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-2 py-1 rounded-lg bg-black/75 hover:bg-[#5D34F7] text-white text-[10px] font-bold shadow-md cursor-pointer"
+                                  title="Set as primary profile picture"
+                                >
+                                  <Star size={10} /> Make Primary
+                                </button>
+                              ) : null}
+
+                              {/* Delete button - only for account owner */}
+                              {!id && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeletePhoto(index);
+                                  }}
+                                  className="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg bg-red-600/90 hover:bg-red-700 text-white shadow-md cursor-pointer"
+                                  title="Delete photo"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+
+                              {/* Status Badges */}
+                              {isPhotoVerified(profile) && photoStatus !== 'rejected' && (
+                                <div className="absolute top-2 right-2 bg-emerald-600/90 backdrop-blur-md text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-md z-10 flex items-center gap-0.5 pointer-events-none border border-white/20 select-none">
+                                  <Check size={10} className="stroke-[3]" />
+                                  <span>Verified</span>
+                                </div>
+                              )}
+                              {photoStatus === 'rejected' && (
+                                <div className="absolute bottom-0 inset-x-0 bg-red-600/95 text-white text-[8px] font-black py-0.5 text-center leading-none uppercase pointer-events-none z-10">
+                                  Rejected
+                                </div>
+                              )}
+                              {photoStatus === 'pending' && (
+                                <div className="absolute bottom-0 inset-x-0 bg-amber-500/95 text-white text-[8px] font-black py-0.5 text-center leading-none uppercase pointer-events-none z-10">
+                                  Pending Verification
+                                </div>
+                              )}
+
+                              {/* Hover click to view full size prompt */}
+                              <div className="absolute bottom-1.5 right-1.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity px-1.5 py-0.5 rounded bg-black/60 text-white text-[8px] font-semibold pointer-events-none">
+                                View
+                              </div>
                             </div>
-                          </div>
                           );
                         })
-                      ) : (
+                      ) : null}
+
+                      {/* "+ Add Picture" slot card if capacity is not full */}
+                      {!id && displayPhotos.length < 10 && (
                         <div
-                          onClick={() => document.getElementById('gallery-direct-upload').click()}
-                          className="flex flex-col items-center justify-center w-full p-6 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 hover:bg-slate-100 hover:border-[#5D34F7]/40 transition cursor-pointer text-center"
+                          onClick={() => {
+                            if (displayPhotos.length >= 10) {
+                              setError('You can upload a maximum of 10 pictures per account.');
+                              return;
+                            }
+                            document.getElementById('gallery-direct-upload').click();
+                          }}
+                          className="relative aspect-[3/4] rounded-2xl border-2 border-dashed border-slate-200 hover:border-[#5D34F7] bg-slate-50 hover:bg-[#5D34F7]/5 flex flex-col items-center justify-center p-3 text-center transition-all cursor-pointer group"
+                          title={`Click to upload photo (${10 - displayPhotos.length} slots remaining)`}
                         >
-                          <Camera size={24} className="text-slate-300 mb-2" />
-                          <p className="text-xs text-slate-400 font-semibold">Click to add your first photo</p>
+                          <div className="w-9 h-9 rounded-xl bg-[#5D34F7]/10 text-[#5D34F7] flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+                            <Plus size={18} />
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-700 group-hover:text-[#5D34F7] transition-colors leading-tight">
+                            Add Picture
+                          </span>
+                          <span className="text-[9px] text-slate-400 font-semibold mt-0.5">
+                            {10 - displayPhotos.length} remaining
+                          </span>
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* ABOUT ME / BIO */}
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-3 relative group">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
-                      <Heart size={18} className="text-[#5D34F7]" /> About Me
-                    </label>
-                    {!id && (
-                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('basic'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100" title="Edit About Me">
-                        <Edit2 size={16} />
-                      </button>
+                {/* ABOUT ME / DESCRIPTION WITH VERIFICATION */}
+                <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4 relative group">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100/80 pb-3.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-[#5D34F7]/10 flex items-center justify-center text-[#5D34F7]">
+                        <Heart size={18} className="text-[#5D34F7]" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                          <span>About Me</span>
+                          <span className="text-[11px] font-bold text-slate-400">/ Description</span>
+                        </h3>
+                      </div>
+                    </div>
+
+                    {/* Verification Status Pill */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {profile?.aboutMeVerificationStatus === 'approved' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs">
+                          <CheckCircle2 size={13} className="text-emerald-600" />
+                          <span>Verified Description</span>
+                        </span>
+                      )}
+                      {profile?.aboutMeVerificationStatus === 'pending' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs animate-pulse">
+                          <Clock size={13} className="text-amber-600" />
+                          <span>Pending Verification</span>
+                        </span>
+                      )}
+                      {profile?.aboutMeVerificationStatus === 'rejected' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-rose-50 text-rose-800 border border-rose-300 shadow-2xs">
+                          <XCircle size={13} className="text-rose-600" />
+                          <span>Verification Failed</span>
+                        </span>
+                      )}
+                      {(!profile?.aboutMeVerificationStatus || profile?.aboutMeVerificationStatus === 'none') && (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-650 border border-slate-200 shadow-2xs">
+                          <ShieldAlert size={12} className="text-slate-500" />
+                          <span>Not Verified</span>
+                        </span>
+                      )}
+
+                      {!id && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVerifyBioText(p.bio || '');
+                            setVerifyBioError('');
+                            setShowDescriptionVerifyModal(true);
+                          }}
+                          className="px-3 py-1 rounded-xl bg-[#5D34F7]/10 hover:bg-[#5D34F7] text-[#5D34F7] hover:text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                          title="Verify or edit description"
+                        >
+                          <Edit2 size={12} />
+                          <span>{p.bio ? 'Verify / Edit' : 'Add Description'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Description Text Content with Proper Formatting */}
+                  <div className="bg-slate-50/60 p-4 rounded-2xl border border-slate-100">
+                    {p.bio ? (
+                      <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-line font-medium">
+                        {p.bio}
+                      </p>
+                    ) : (
+                      <div className="py-2 text-center text-slate-400">
+                        <p className="text-xs font-semibold">No description provided yet.</p>
+                        {!id && (
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            Click "Add Description" above to write about your background, values, and expectations.
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
-                  <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">
-                    {p.bio || 'Provide a description to tell others about yourself.'}
-                  </p>
+
+                  {/* Contextual Verification Feedback Box (only for own profile) */}
+                  {!id && (
+                    <div className="pt-1">
+                      {profile?.aboutMeVerificationStatus === 'approved' && (
+                        <div className="p-3 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl flex items-center gap-2.5 text-xs text-emerald-900 font-semibold">
+                          <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                          <span>Your profile description has been verified by our moderation team and is displayed with the verified badge to prospective matches.</span>
+                        </div>
+                      )}
+                      {profile?.aboutMeVerificationStatus === 'pending' && (
+                        <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl flex items-center justify-between gap-3 text-xs text-amber-900 font-semibold">
+                          <div className="flex items-center gap-2.5">
+                            <Clock size={16} className="text-amber-600 shrink-0 animate-spin" />
+                            <span>Your description is currently under review by our screening team. Review typically takes 12-24 hours.</span>
+                          </div>
+                          <span className="text-[10px] font-black uppercase text-amber-700 px-2 py-0.5 bg-amber-100 rounded-md shrink-0">In Review</span>
+                        </div>
+                      )}
+                      {profile?.aboutMeVerificationStatus === 'rejected' && (
+                        <div className="p-3.5 bg-rose-50/80 border border-rose-200 rounded-2xl space-y-2 text-xs text-rose-900">
+                          <div className="flex items-center gap-2.5 font-bold">
+                            <XCircle size={16} className="text-rose-600 shrink-0" />
+                            <span>Description Verification Failed: Action Required</span>
+                          </div>
+                          <p className="text-[11px] text-rose-800 font-medium leading-relaxed pl-6">
+                            Your submitted description did not meet community safety guidelines (e.g. personal phone numbers, emails, or policy violations). Please update and re-submit your description.
+                          </p>
+                          <div className="pl-6 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVerifyBioText(p.bio || '');
+                                setVerifyBioError('');
+                                setShowDescriptionVerifyModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black shadow-2xs transition cursor-pointer"
+                            >
+                              Update & Re-verify Description
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {(!profile?.aboutMeVerificationStatus || profile?.aboutMeVerificationStatus === 'none') && p.bio && (
+                        <div className="p-3 bg-indigo-50/50 border border-indigo-150 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-indigo-950 font-semibold">
+                          <div className="flex items-center gap-2">
+                            <ShieldCheck size={16} className="text-[#5D34F7] shrink-0" />
+                            <span>Get the Verified Description badge by submitting your text for safety review.</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVerifyBioText(p.bio || '');
+                              setVerifyBioError('');
+                              setShowDescriptionVerifyModal(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-[#5D34F7] hover:bg-[#4024DB] text-white rounded-xl text-xs font-black shadow-xs transition cursor-pointer shrink-0"
+                          >
+                            Submit for Verification
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
+
+                {/* QUICK CONTACT INFO CARD ON LEFT COLUMN */}
+                {id && (
+                  <div className="bg-white rounded-3xl p-6 shadow-sm border border-emerald-150/80 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                          <Phone size={16} />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-slate-900 tracking-tight">Contact Info</h4>
+                          <p className="text-[10px] text-slate-400 font-semibold">Mobile number & email</p>
+                        </div>
+                      </div>
+                      <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border ${
+                        (unlockedContacts[id] || profile?.hasContacted || profile?.contacted)
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        {(unlockedContacts[id] || profile?.hasContacted || profile?.contacted) ? 'Unlocked' : 'Protected'}
+                      </span>
+                    </div>
+
+                    <ContactInfoCard
+                      targetUser={profile}
+                      isPremium={viewerUser?.premiumMembership?.isPremium || false}
+                      unlockedMap={unlockedContacts}
+                      onUnlockSuccess={(targetId, unlockedData) => {
+                        setUnlockedContacts((prev) => ({ ...prev, [targetId]: unlockedData }));
+                        if (unlockedData.phone) setPhone(unlockedData.phone);
+                        if (unlockedData.email) setEmail(unlockedData.email);
+                      }}
+                      onCall={(callPhone, callName, callPhoto) => {
+                        setCallModalData({
+                          isOpen: true,
+                          phone: callPhone,
+                          name: callName,
+                          photo: callPhoto
+                        });
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* TERMS & CONDITIONS / PLATFORM GUIDELINES CARD */}
+                {!id && (
+                  <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
+                    <h3 className="text-sm font-extrabold text-slate-800 border-b border-slate-100 pb-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Scale size={18} className="text-[#5D34F7]" />
+                        <span>Platform Guidelines</span>
+                      </div>
+                    </h3>
+                    <div className="space-y-2.5">
+                      <button
+                        onClick={() => navigate('/legal/terms-conditions')}
+                        className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/80 hover:bg-[#5D34F7]/10 text-slate-700 hover:text-[#5D34F7] border border-slate-100 transition cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-white border border-slate-200/60 flex items-center justify-center text-[#5D34F7] group-hover:scale-105 transition shadow-2xs">
+                            <FileText size={16} />
+                          </div>
+                          <div className="text-left">
+                            <span className="block text-xs font-black text-slate-800 group-hover:text-[#5D34F7] transition">
+                              Terms and Conditions
+                            </span>
+                            <span className="block text-[10px] text-slate-400 font-semibold">
+                              Platform rules, code of conduct & agreement
+                            </span>
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-400 group-hover:text-[#5D34F7] group-hover:translate-x-0.5 transition" />
+                      </button>
+
+                      <button
+                        onClick={() => navigate('/legal/privacy-policy')}
+                        className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/80 hover:bg-[#5D34F7]/10 text-slate-700 hover:text-[#5D34F7] border border-slate-100 transition cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-white border border-slate-200/60 flex items-center justify-center text-emerald-600 group-hover:scale-105 transition shadow-2xs">
+                            <ShieldCheck size={16} />
+                          </div>
+                          <div className="text-left">
+                            <span className="block text-xs font-black text-slate-800 group-hover:text-[#5D34F7] transition">
+                              Privacy Policy
+                            </span>
+                            <span className="block text-[10px] text-slate-400 font-semibold">
+                              Confidentiality & photo safety
+                            </span>
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-400 group-hover:text-[#5D34F7] group-hover:translate-x-0.5 transition" />
+                      </button>
+
+                      <button
+                        onClick={() => navigate('/legal/safety-center')}
+                        className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-amber-50/60 hover:bg-[#5D34F7]/10 text-slate-700 hover:text-[#5D34F7] border border-amber-200/70 hover:border-slate-100 transition cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-white border border-amber-200/80 flex items-center justify-center text-amber-600 group-hover:scale-105 transition shadow-2xs">
+                            <ShieldCheck size={16} />
+                          </div>
+                          <div className="text-left">
+                            <span className="block text-xs font-black text-slate-800 group-hover:text-[#5D34F7] transition">
+                              Safety Center
+                            </span>
+                            <span className="block text-[10px] text-slate-400 font-semibold">
+                              Safe matchmaking, fraud tips & report user
+                            </span>
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-400 group-hover:text-[#5D34F7] group-hover:translate-x-0.5 transition" />
+                      </button>
+
+                      <button
+                        onClick={() => navigate('/settings')}
+                        className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-purple-50/60 hover:bg-[#5D34F7]/10 text-slate-700 hover:text-[#5D34F7] border border-purple-200/70 hover:border-slate-100 transition cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-white border border-purple-200/80 flex items-center justify-center text-[#5D34F7] group-hover:scale-105 transition shadow-2xs">
+                            <Lock size={16} />
+                          </div>
+                          <div className="text-left">
+                            <span className="block text-xs font-black text-slate-800 group-hover:text-[#5D34F7] transition">
+                              Privacy & Security Settings
+                            </span>
+                            <span className="block text-[10px] text-slate-400 font-semibold">
+                              Photo, contact & call visibility preferences
+                            </span>
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-400 group-hover:text-[#5D34F7] group-hover:translate-x-0.5 transition" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </aside>
 
               {/* Right Column: Profile details */}
@@ -1822,10 +3771,53 @@ export default function Profile() {
                     )}
                   </h3>
                   <div className="space-y-3">
+                    {famId && (
+                      <ProfileItem 
+                        icon={<ShieldCheck size={16} />} 
+                        label="FAM ID" 
+                        value={famId} 
+                        isCopyable
+                        onCopy={(e) => handleCopyFamId(famId, e)}
+                        isCopied={copiedFamId === famId}
+                        copyTitle="Copy FAM ID"
+                      />
+                    )}
+                    {formatProfileCreatedBy(p.profileFor || profile?.profileFor || profileFor) && (
+                      <ProfileItem 
+                        icon={<Users size={16} />} 
+                        label="Profile Created By" 
+                        value={formatProfileCreatedBy(p.profileFor || profile?.profileFor || profileFor)} 
+                      />
+                    )}
                     <ProfileItem icon={<User size={16} />} label="Full Name" value={p.name} />
                     <ProfileItem icon={<Calendar size={16} />} label="Date of Birth" value={p.dob ? `${new Date(p.dob).toLocaleDateString()} (${p.age || 0} years)` : ''} />
                     <ProfileItem icon={<User size={16} />} label="Gender" value={p.gender} />
+                    <ProfileItem 
+                      icon={<Languages size={16} />} 
+                      label="Spoken Languages" 
+                      value={formatLanguages(p.languages || p.motherTongue)} 
+                    />
+                  </div>
+                </div>
+
+                {/* PHYSICAL & LIFESTYLE */}
+                <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
+                  <h3 className="text-sm font-extrabold text-slate-800 border-b border-slate-100 pb-3.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Heart size={18} className="text-[#4CC9F0]" />
+                      <span>Physical & Lifestyle</span>
+                    </div>
+                    {!id && (
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('lifestyle'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Physical & Lifestyle">
+                        <Edit2 size={16} />
+                      </button>
+                    )}
+                  </h3>
+                  <div className="space-y-3">
                     <ProfileItem icon={<Heart size={16} />} label="Marital Status" value={p.maritalStatus} />
+                    {(p.maritalStatus && p.maritalStatus !== 'Never Married' || p.hasChildren === 'Yes') && (
+                      <ProfileItem icon={<Users size={16} />} label="Children / Kids" value={formatChildrenDisplay(p)} />
+                    )}
                     <ProfileItem icon={<User size={16} />} label="Height" value={p.height} />
                     <ProfileItem icon={<User size={16} />} label="Diet" value={p.diet} />
                   </div>
@@ -1886,6 +3878,9 @@ export default function Profile() {
                     <ProfileItem icon={<MapPin size={16} />} label="City" value={p.city} />
                     <ProfileItem icon={<MapPin size={16} />} label="State" value={p.state} />
                     <ProfileItem icon={<MapPin size={16} />} label="Country" value={p.country || 'India'} />
+                    {p.astrology?.timeOfBirth && (
+                      <ProfileItem icon={<Clock size={16} />} label="Time of Birth" value={p.astrology.timeOfBirth} />
+                    )}
                   </div>
                 </div>
 
@@ -1913,7 +3908,13 @@ export default function Profile() {
                   </h3>
                   <div className="space-y-3">
                     <ProfileItem icon={<GraduationCap size={16} />} label="Highest Qualification" value={p.education} />
-                    <ProfileItem icon={<GraduationCap size={16} />} label="College/University" value={p.college} />
+                    <ProfileItem 
+                      icon={<GraduationCap size={16} />} 
+                      label="College/University" 
+                      value={p.college}
+                      onRemove={!id && p.college ? () => setShowRemoveCollegeModal(true) : undefined}
+                      removeTitle="Remove College from Profile"
+                    />
                     <ProfileItem icon={<Briefcase size={16} />} label="Work Sector" value={p.workSector} />
                     <ProfileItem icon={<Briefcase size={16} />} label="Profession" value={p.workRole} />
                     <ProfileItem icon={<Briefcase size={16} />} label="Company" value={p.companyName} />
@@ -1922,8 +3923,8 @@ export default function Profile() {
                 </div>
 
                 {/* HOBBIES & INTERESTS */}
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
-                  <h3 className="text-sm font-extrabold text-slate-800 border-b border-slate-100 pb-3.5 flex items-center justify-between">
+                <div id="hobbies-interests-card" className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
+                  <div className="border-b border-slate-100 pb-3.5 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12 22C17.5 22 22 17.5 22 12C22 6.5 17.5 2 12 2C6.5 2 2 6.5 2 12C2 17.5 6.5 22 12 22Z" stroke="url(#hob_grad)" strokeWidth="2.5" />
@@ -1938,25 +3939,449 @@ export default function Profile() {
                           </linearGradient>
                         </defs>
                       </svg>
-                      <span>Hobbies & Interests</span>
+                      <h3 className="text-sm font-extrabold text-slate-800">Hobbies & Interests</h3>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                        {(p.hobbies || []).length} selected
+                      </span>
                     </div>
-                    {!id && (
-                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('hobbies'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Hobbies">
-                        <Edit2 size={16} />
+
+                    {!id && !isEditingHobbies && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingHobbies(true);
+                          setDraftHobbies(Array.isArray(p.hobbies) ? [...p.hobbies] : (Array.isArray(hobbies) ? [...hobbies] : []));
+                          setHobbiesError('');
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#5D34F7]/10 hover:bg-[#5D34F7] text-[#5D34F7] hover:text-white rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer shadow-2xs active:scale-95"
+                        title="Edit Hobbies and Interests"
+                      >
+                        <Edit2 size={13} />
+                        <span>Edit</span>
                       </button>
                     )}
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {p.hobbies && p.hobbies.length > 0 ? (
-                      p.hobbies.map(hobby => (
-                        <span key={hobby} className="px-3 py-1.5 bg-[#5D34F7]/5 text-[#5D34F7] text-xs font-semibold rounded-full border border-[#5D34F7]/10">
-                          {hobby}
-                        </span>
-                      ))
-                    ) : (
-                      <p className="text-sm text-gray-400 italic">No hobbies added yet.</p>
+                  </div>
+
+                  {/* Success notification */}
+                  {hobbiesSuccess && (
+                    <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                      <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                      <span>Hobbies and interests updated successfully!</span>
+                    </div>
+                  )}
+
+                  {/* Error notification */}
+                  {hobbiesError && (
+                    <div className="p-3 bg-red-50 rounded-2xl border border-red-200 text-red-600 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                      <AlertCircle size={16} className="text-red-500 shrink-0" />
+                      <span>{hobbiesError}</span>
+                    </div>
+                  )}
+
+                  {/* Inline Editing Mode */}
+                  {!id && isEditingHobbies ? (
+                    <div className="space-y-4 animate-in fade-in duration-200">
+                      <p className="text-xs text-slate-500">
+                        Select your favorite hobbies and interests below, or add custom ones.
+                      </p>
+
+                      {/* Curated Category Groups */}
+                      <div className="space-y-3.5">
+                        {HOBBIES_CATEGORIES.map(group => (
+                          <div key={group.title} className="space-y-1.5">
+                            <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{group.title}</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                              {group.items.map(item => {
+                                const sel = draftHobbies.includes(item);
+                                return (
+                                  <button
+                                    key={item}
+                                    type="button"
+                                    onClick={() => {
+                                      if (sel) {
+                                        setDraftHobbies(draftHobbies.filter(h => h !== item));
+                                      } else {
+                                        setDraftHobbies([...draftHobbies, item]);
+                                      }
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                                      sel
+                                        ? 'bg-[#5D34F7] text-white border-[#5D34F7] shadow-xs'
+                                        : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:border-[#5D34F7]/40 hover:bg-white'
+                                    }`}
+                                  >
+                                    {sel ? '✓ ' : ''}{item}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Custom Hobby Input */}
+                      <div className="pt-2">
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">Add Other Hobby or Interest</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={customHobbyInput}
+                            onChange={(e) => setCustomHobbyInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const val = customHobbyInput.trim();
+                                if (val && !draftHobbies.some(h => h.toLowerCase() === val.toLowerCase())) {
+                                  setDraftHobbies([...draftHobbies, val]);
+                                  setCustomHobbyInput('');
+                                }
+                              }
+                            }}
+                            placeholder="Type a hobby and press Add (e.g. Calligraphy, Astronomy)..."
+                            className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-[#5D34F7] bg-white transition"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const val = customHobbyInput.trim();
+                              if (val && !draftHobbies.some(h => h.toLowerCase() === val.toLowerCase())) {
+                                setDraftHobbies([...draftHobbies, val]);
+                                setCustomHobbyInput('');
+                              }
+                            }}
+                            className="px-3.5 py-1.5 bg-[#5D34F7] text-white rounded-xl text-xs font-bold hover:bg-[#4024DB] transition cursor-pointer"
+                          >
+                            + Add
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Currently Selected Badges with Remove Button */}
+                      {draftHobbies.length > 0 && (
+                        <div className="p-3 bg-purple-50/50 rounded-2xl border border-purple-100/70 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-bold text-purple-900">
+                            <span>Currently Selected ({draftHobbies.length})</span>
+                            <button
+                              type="button"
+                              onClick={() => setDraftHobbies([])}
+                              className="text-[10px] text-rose-600 hover:underline cursor-pointer"
+                            >
+                              Clear all
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {draftHobbies.map(h => (
+                              <span key={h} className="inline-flex items-center gap-1 px-2.5 py-1 bg-white text-[#5D34F7] border border-purple-200 text-xs font-bold rounded-lg shadow-2xs">
+                                {h}
+                                <button
+                                  type="button"
+                                  onClick={() => setDraftHobbies(draftHobbies.filter(x => x !== h))}
+                                  className="text-slate-400 hover:text-rose-600 ml-0.5 cursor-pointer font-black text-[11px]"
+                                  title="Remove"
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Buttons: Save & Cancel */}
+                      <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditingHobbies(false);
+                            setDraftHobbies(p.hobbies || []);
+                            setHobbiesError('');
+                          }}
+                          disabled={isSaving}
+                          className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveHobbiesDirectly(draftHobbies)}
+                          disabled={isSaving}
+                          className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-gradient-to-r from-[#5D34F7] to-[#4024DB] text-white text-xs font-bold hover:opacity-95 shadow-sm transition cursor-pointer disabled:opacity-50 active:scale-95"
+                        >
+                          <Check size={14} />
+                          {isSaving ? 'Saving...' : 'Save Hobbies'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Display Mode */
+                    <div className="flex flex-wrap gap-2">
+                      {p.hobbies && p.hobbies.length > 0 ? (
+                        p.hobbies.map(hobby => (
+                          <span key={hobby} className="px-3 py-1.5 bg-[#5D34F7]/5 text-[#5D34F7] text-xs font-bold rounded-full border border-[#5D34F7]/10 hover:border-[#5D34F7]/30 transition">
+                            {hobby}
+                          </span>
+                        ))
+                      ) : (
+                        <div className="py-2 flex items-center justify-between w-full">
+                          <p className="text-sm text-gray-400 italic">No hobbies added yet.</p>
+                          {!id && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsEditingHobbies(true);
+                                setDraftHobbies([]);
+                                setHobbiesError('');
+                              }}
+                              className="text-xs font-bold text-[#5D34F7] hover:underline cursor-pointer"
+                            >
+                              + Add Hobbies & Interests
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* SPOKEN LANGUAGES */}
+                <div id="spoken-languages-card" className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
+                  <div className="border-b border-slate-100 pb-3.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-xl bg-sky-50 flex items-center justify-center text-sky-600 shadow-2xs">
+                        <Languages size={16} />
+                      </div>
+                      <h3 className="text-sm font-extrabold text-slate-800">Spoken Languages</h3>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100">
+                        {getLanguagesList(p.languages || languages || p.motherTongue).length} selected
+                      </span>
+                    </div>
+
+                    {!id && !isEditingLanguages && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingLanguages(true);
+                          setDraftLanguages(getLanguagesList(p.languages || languages || p.motherTongue));
+                          setLanguagesError('');
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-600 text-sky-700 hover:text-white rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer shadow-2xs active:scale-95"
+                        title="Edit Spoken Languages"
+                      >
+                        <Edit2 size={13} />
+                        <span>Edit</span>
+                      </button>
                     )}
                   </div>
+
+                  {/* Success notification */}
+                  {languagesSuccess && (
+                    <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                      <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                      <span>Spoken languages updated successfully!</span>
+                    </div>
+                  )}
+
+                  {/* Error notification */}
+                  {languagesError && (
+                    <div className="p-3 bg-red-50 rounded-2xl border border-red-200 text-red-600 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                      <AlertCircle size={16} className="text-red-500 shrink-0" />
+                      <span>{languagesError}</span>
+                    </div>
+                  )}
+
+                  {/* Inline Editing Mode */}
+                  {!id && isEditingLanguages ? (
+                    <div className="space-y-4 animate-in fade-in duration-200">
+                      <p className="text-xs text-slate-500">
+                        Select the languages you can speak fluently or converse in.
+                      </p>
+
+                      {/* Search Input */}
+                      <div className="relative">
+                        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search popular languages..."
+                          value={languageSearch}
+                          onChange={(e) => setLanguageSearch(e.target.value)}
+                          className="w-full pl-9 pr-8 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7]/40 focus:border-[#5D34F7] bg-white transition"
+                        />
+                        {languageSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setLanguageSearch('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Popular & Filtered Language Chips */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                            {languageSearch ? 'Matching Languages' : 'Popular Languages'}
+                          </span>
+                          <span className="text-[10px] text-slate-400">Click to select/unselect</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pr-1">
+                          {ALL_SPOKEN_LANGUAGES
+                            .filter(l => !languageSearch || l.toLowerCase().includes(languageSearch.toLowerCase()))
+                            .map(lang => {
+                              const sel = draftLanguages.includes(lang);
+                              return (
+                                <button
+                                  key={lang}
+                                  type="button"
+                                  onClick={() => {
+                                    if (sel) {
+                                      setDraftLanguages(draftLanguages.filter(x => x !== lang));
+                                    } else {
+                                      setDraftLanguages([...draftLanguages, lang]);
+                                    }
+                                  }}
+                                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                                    sel
+                                      ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                                      : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:border-sky-400 hover:bg-white'
+                                  }`}
+                                >
+                                  {sel ? '✓ ' : '+ '}{lang}
+                                </button>
+                              );
+                            })}
+                        </div>
+                      </div>
+
+                      {/* Custom Language Addition */}
+                      <div className="pt-2 border-t border-slate-100">
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">Add Another Language</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={customLanguageInput}
+                            onChange={(e) => setCustomLanguageInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const val = customLanguageInput.trim();
+                                if (val && !draftLanguages.some(l => l.toLowerCase() === val.toLowerCase())) {
+                                  setDraftLanguages([...draftLanguages, val]);
+                                  setCustomLanguageInput('');
+                                }
+                              }
+                            }}
+                            placeholder="Type a language and press Add (e.g. Japanese, French)..."
+                            className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-sky-500 bg-white transition"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const val = customLanguageInput.trim();
+                              if (val && !draftLanguages.some(l => l.toLowerCase() === val.toLowerCase())) {
+                                setDraftLanguages([...draftLanguages, val]);
+                                setCustomLanguageInput('');
+                              }
+                            }}
+                            className="px-3.5 py-1.5 bg-sky-600 text-white rounded-xl text-xs font-bold hover:bg-sky-700 transition cursor-pointer"
+                          >
+                            + Add
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Currently Selected Badges with Remove Button */}
+                      {draftLanguages.length > 0 && (
+                        <div className="p-3 bg-sky-50/60 rounded-2xl border border-sky-100 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-bold text-sky-900">
+                            <span>Currently Selected ({draftLanguages.length})</span>
+                            <button
+                              type="button"
+                              onClick={() => setDraftLanguages([])}
+                              className="text-[10px] text-rose-600 hover:underline cursor-pointer"
+                            >
+                              Clear all
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {draftLanguages.map(l => (
+                              <span key={l} className="inline-flex items-center gap-1 px-2.5 py-1 bg-white text-sky-700 border border-sky-200 text-xs font-bold rounded-lg shadow-2xs">
+                                {l}
+                                <button
+                                  type="button"
+                                  onClick={() => setDraftLanguages(draftLanguages.filter(x => x !== l))}
+                                  className="text-slate-400 hover:text-rose-600 ml-0.5 cursor-pointer font-black text-[11px]"
+                                  title="Remove"
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Buttons: Save & Cancel */}
+                      <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditingLanguages(false);
+                            setDraftLanguages(getLanguagesList(p.languages || languages || p.motherTongue));
+                            setLanguagesError('');
+                          }}
+                          disabled={isSaving}
+                          className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveLanguagesDirectly(draftLanguages)}
+                          disabled={isSaving}
+                          className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-sky-700 text-white text-xs font-bold hover:opacity-95 shadow-sm transition cursor-pointer disabled:opacity-50 active:scale-95"
+                        >
+                          <Check size={14} />
+                          {isSaving ? 'Saving...' : 'Save Languages'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Display Mode */
+                    <div className="space-y-3">
+                      {getLanguagesList(p.languages || languages || p.motherTongue).length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {getLanguagesList(p.languages || languages || p.motherTongue).map(lang => (
+                            <span
+                              key={lang}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 text-sky-800 text-xs font-bold rounded-xl border border-sky-100 hover:border-sky-300 transition shadow-2xs"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                              <span>{lang}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="py-2 flex items-center justify-between w-full">
+                          <p className="text-sm text-gray-400 italic">No spoken languages added yet.</p>
+                          {!id && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsEditingLanguages(true);
+                                setDraftLanguages([]);
+                                setLanguagesError('');
+                              }}
+                              className="text-xs font-bold text-sky-600 hover:underline cursor-pointer"
+                            >
+                              + Add Spoken Languages
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* FAMILY DETAILS */}
@@ -1988,6 +4413,7 @@ export default function Profile() {
                   <div className="space-y-3">
                     <ProfileItem icon={<User size={16} />} label="Mother's Status" value={p.motherStatus} />
                     <ProfileItem icon={<User size={16} />} label="Father's Status" value={p.fatherStatus} />
+                    <ProfileItem icon={<Users size={16} />} label="Siblings" value={formatSiblings(p)} />
                     <ProfileItem icon={<Users size={16} />} label="No of Sisters" value={p.sistersCount !== undefined ? p.sistersCount.toString() : '0'} />
                     <ProfileItem icon={<Users size={16} />} label="No of Brothers" value={p.brothersCount !== undefined ? p.brothersCount.toString() : '0'} />
                     <ProfileItem icon={<Users size={16} />} label="Lives with Family" value={p.liveWithFamily === true ? 'Yes' : p.liveWithFamily === false ? 'No' : ''} />
@@ -2012,22 +4438,44 @@ export default function Profile() {
                       <span>Astrology Details</span>
                     </div>
                     {!id && (
-                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('astrology'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Astrology">
+                      <button onClick={() => { setIsEditing(true); setActiveEditCategory('astrology'); }} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Astrology Details">
                         <Edit2 size={16} />
                       </button>
                     )}
                   </h3>
                   <div className="space-y-3">
                     <ProfileItem icon={<Activity size={16} />} label="Time of Birth" value={p.astrology?.timeOfBirth} />
-                    <ProfileItem icon={<MapPin size={16} />} label="City of Birth" value={p.astrology?.cityOfBirth} />
+                    <ProfileItem icon={<MapPin size={16} />} label="City of Birth" value={p.astrology?.cityOfBirth || p.city} />
                     {p.astrology?.rashi && <ProfileItem icon={<Sparkles size={16} />} label="Rashi (Moon Sign)" value={p.astrology.rashi} />}
                     {p.astrology?.nakshatra && <ProfileItem icon={<Sparkles size={16} />} label="Nakshatra" value={p.astrology.nakshatra} />}
                     {p.astrology?.manglik !== undefined && <ProfileItem icon={<Sparkles size={16} />} label="Manglik" value={p.astrology.manglik ? 'Yes' : 'No'} />}
                   </div>
+
+                  {/* AstroChat Consultation Banner */}
+                  <div className="mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-indigo-50 via-purple-50 to-amber-50 border border-indigo-100/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm">🔮</span>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full inline-block">
+                          AstroChat Kundali Guidance
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-800">
+                        Consult verified Vedic Astrologers for marriage compatibility & horoscope matching.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/astrochat')}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#5D34F7] to-[#4024DB] hover:from-[#4d25d0] hover:to-[#381fcc] text-white text-xs font-black shadow-sm transition cursor-pointer shrink-0 active:scale-95 text-center"
+                    >
+                      Open AstroChat
+                    </button>
+                  </div>
                 </div>
 
                 {/* CONTACT DETAILS */}
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
+                <div id="contact-info-section" className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4 scroll-mt-24 transition-all duration-300">
                   <h3 className="text-sm font-extrabold text-slate-800 border-b border-slate-100 pb-3.5 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2089,62 +4537,325 @@ export default function Profile() {
                 </div>
 
                 {/* PARTNER PREFERENCES (VIEW MODE) */}
-                {profile?.preferences && (
-                  <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-4">
-                    <h3 className="text-sm font-extrabold text-slate-800 border-b border-slate-100 pb-3.5 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <rect x="3" y="3" width="18" height="18" rx="5" fill="url(#pref_view_grad)" />
-                          <path d="M7 16V8M12 16V8M17 16V8" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-                          <circle cx="7" cy="10" r="1.5" fill="#5D34F7" stroke="white" strokeWidth="2" />
-                          <circle cx="12" cy="14" r="1.5" fill="#5D34F7" stroke="white" strokeWidth="2" />
-                          <circle cx="17" cy="9" r="1.5" fill="#5D34F7" stroke="white" strokeWidth="2" />
-                          <defs>
-                            <linearGradient id="pref_view_grad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
-                              <stop stopColor="#5D34F7" />
-                              <stop offset="1" stopColor="#4024DB" />
-                            </linearGradient>
-                          </defs>
-                        </svg>
-                        <span>Partner Preferences</span>
-                      </div>
-                      {!id && (
-                        <button onClick={() => setActiveTab('preferences')} className="text-slate-400 hover:text-[#5D34F7] hover:bg-[#5D34F7]/10 p-1.5 rounded-lg transition-colors cursor-pointer" title="Edit Preferences">
-                          <Edit2 size={16} />
-                        </button>
-                      )}
-                    </h3>
-                    <div className="space-y-4">
-                      {profile.preferences.ageRange && profile.preferences.ageRange.length === 2 && (
-                        <ProfileItem icon={<Users size={16} />} label="Age Range" value={`${profile.preferences.ageRange[0]} - ${profile.preferences.ageRange[1]} years`} />
-                      )}
-                      
-                      {profile.preferences.height && profile.preferences.height.length > 0 && (
-                        <ProfileItem icon={<Users size={16} />} label="Height Range" value={`${profile.preferences.height[0].split(' (')[0]} to ${profile.preferences.height[profile.preferences.height.length - 1].split(' (')[0]}`} />
-                      )}
-
-                      {['gender', 'maritalStatus', 'diet', 'religion', 'caste', 'subCommunity', 'location', 'education', 'college', 'workSector', 'profession', 'income', 'familyFinancialStatus'].map((prefKey) => {
-                        const vals = profile.preferences[prefKey];
-                        if (!vals || vals.length === 0) return null;
-                        const labels = {
-                          gender: "Gender", maritalStatus: "Marital Status", diet: "Diet", religion: "Religion", caste: "Caste", subCommunity: "Sub-community", location: "Location", education: "Education", college: "College", workSector: "Work Sector", profession: "Profession", income: "Income", familyFinancialStatus: "Family Financial Status"
-                        };
-                        return (
-                          <div key={prefKey} className="flex flex-col gap-1.5">
-                            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><Heart size={12} className="text-[#5D34F7]" /> {labels[prefKey]}</span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {vals.map(v => (
-                                <span key={v} className="px-2.5 py-1 bg-[#5D34F7]/5 text-[#5D34F7] text-xs font-semibold rounded-lg border border-[#5D34F7]/10">
-                                  {v}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
+                <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-6">
+                  <h3 className="text-sm font-extrabold text-slate-800 border-b border-slate-100 pb-3.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="3" y="3" width="18" height="18" rx="5" fill="url(#pref_view_grad)" />
+                        <path d="M7 16V8M12 16V8M17 16V8" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+                        <circle cx="7" cy="10" r="1.5" fill="#5D34F7" stroke="white" strokeWidth="2" />
+                        <circle cx="12" cy="14" r="1.5" fill="#5D34F7" stroke="white" strokeWidth="2" />
+                        <circle cx="17" cy="9" r="1.5" fill="#5D34F7" stroke="white" strokeWidth="2" />
+                        <defs>
+                          <linearGradient id="pref_view_grad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+                            <stop stopColor="#5D34F7" />
+                            <stop offset="1" stopColor="#4024DB" />
+                          </linearGradient>
+                        </defs>
+                      </svg>
+                      <span>Partner Preferences</span>
                     </div>
-                  </div>
-                )}
+                    {!id && (
+                      <button 
+                        onClick={() => setActiveTab('preferences')} 
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#5D34F7]/10 hover:bg-[#5D34F7] text-[#5D34F7] hover:text-white rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer shadow-2xs group active:scale-95" 
+                        title="Edit / Update Partner Preferences"
+                      >
+                        <span>Edit Preferences</span>
+                        <ArrowRight size={13} className="group-hover:translate-x-0.5 transition-transform duration-200" />
+                      </button>
+                    )}
+                  </h3>
+
+                  {(() => {
+                    const prefs = profile?.preferences || profile?.profile?.preferences || {};
+
+                    // Helper to format values as array safely without dropping 0
+                    const formatVals = (val) => {
+                      if (val === undefined || val === null || val === '') return [];
+                      if (Array.isArray(val)) {
+                        return val
+                          .filter(item => item !== undefined && item !== null && item !== '')
+                          .map(item => {
+                            if (typeof item === 'number') return String(item);
+                            const str = String(item).trim();
+                            if (str.toLowerCase() === 'no') return 'No Children (0)';
+                            return str;
+                          })
+                          .filter(str => str !== '');
+                      }
+                      if (typeof val === 'number') return [String(val)];
+                      if (typeof val === 'string' && val.trim()) {
+                        if (val.trim().toLowerCase() === 'no') return ['No Children (0)'];
+                        return [val.trim()];
+                      }
+                      return [];
+                    };
+
+                    // Age formatting
+                    let ageDisplay = null;
+                    if (Array.isArray(prefs.ageRange) && prefs.ageRange.length === 2 && (prefs.ageRange[0] !== undefined && prefs.ageRange[0] !== null && prefs.ageRange[1] !== undefined && prefs.ageRange[1] !== null)) {
+                      ageDisplay = `${prefs.ageRange[0]} - ${prefs.ageRange[1]} years`;
+                    } else if (typeof prefs.ageRange === 'string' && prefs.ageRange.trim()) {
+                      ageDisplay = prefs.ageRange;
+                    }
+
+                    // Height formatting
+                    let heightDisplay = null;
+                    if (Array.isArray(prefs.height) && prefs.height.length > 0) {
+                      const startH = prefs.height[0].split(' (')[0];
+                      const endH = prefs.height[prefs.height.length - 1].split(' (')[0];
+                      heightDisplay = prefs.height.length === 1 ? startH : `${startH} to ${endH}`;
+                    } else if (typeof prefs.height === 'string' && prefs.height.trim()) {
+                      heightDisplay = prefs.height.split(' (')[0];
+                    }
+
+                    // Standard 17 preference fields organized into logical groups
+                    const preferenceGroups = [
+                      {
+                        groupTitle: 'Basic & Lifestyle Preferences',
+                        items: [
+                          {
+                            id: 'ageRange',
+                            label: 'Age Range',
+                            icon: <Calendar size={14} className="text-[#5D34F7]" />,
+                            values: ageDisplay ? [ageDisplay] : []
+                          },
+                          {
+                            id: 'height',
+                            label: 'Height Range',
+                            icon: <Sliders size={14} className="text-[#5D34F7]" />,
+                            values: heightDisplay ? [heightDisplay] : []
+                          },
+                          {
+                            id: 'gender',
+                            label: 'Looking For (Gender)',
+                            icon: <User size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.gender)
+                          },
+                          {
+                            id: 'maritalStatus',
+                            label: 'Marital Status',
+                            icon: <Heart size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.maritalStatus)
+                          },
+                          {
+                            id: 'children',
+                            label: 'Children / Kids Preference',
+                            icon: <Baby size={14} className="text-[#5D34F7]" />,
+                            values: (() => {
+                              const raw = prefs.children;
+                              if (raw === undefined || raw === null || (Array.isArray(raw) && raw.length === 0)) return [];
+                              const arr = Array.isArray(raw) ? raw : [raw];
+                              if (arr.some(isZeroOrNoChildren)) {
+                                return ['No Children (0)'];
+                              }
+                              return formatVals(raw);
+                            })()
+                          },
+                          {
+                            id: 'diet',
+                            label: 'Dietary Habits',
+                            icon: <Activity size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.diet)
+                          }
+                        ]
+                      },
+                      {
+                        groupTitle: 'Religion & Community Preferences',
+                        items: [
+                          {
+                            id: 'religion',
+                            label: 'Religion',
+                            icon: <Landmark size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.religion)
+                          },
+                          {
+                            id: 'caste',
+                            label: 'Caste / Community',
+                            icon: <Users size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.caste || prefs.community)
+                          },
+                          {
+                            id: 'subCommunity',
+                            label: 'Sub-Community',
+                            icon: <Users size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.subCommunity)
+                          },
+                          {
+                            id: 'languages',
+                            label: 'Mother Tongue / Language',
+                            icon: <BookOpen size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.languages || prefs.motherTongue || prefs.language)
+                          }
+                        ]
+                      },
+                      {
+                        groupTitle: 'Location Preferences',
+                        items: [
+                          {
+                            id: 'location',
+                            label: 'Preferred Locations / Cities',
+                            icon: <MapPin size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.location || prefs.locations || prefs.city)
+                          }
+                        ]
+                      },
+                      {
+                        groupTitle: 'Education & Career Preferences',
+                        items: [
+                          {
+                            id: 'education',
+                            label: 'Highest Education',
+                            icon: <GraduationCap size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.education || prefs.qualification)
+                          },
+                          {
+                            id: 'college',
+                            label: 'Institution / College',
+                            icon: <GraduationCap size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.college)
+                          },
+                          {
+                            id: 'workSector',
+                            label: 'Work Sector',
+                            icon: <Briefcase size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.workSector)
+                          },
+                          {
+                            id: 'profession',
+                            label: 'Profession / Occupation',
+                            icon: <Briefcase size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.profession || prefs.occupation || prefs.workRole)
+                          },
+                          {
+                            id: 'income',
+                            label: 'Annual Income',
+                            icon: <Scale size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.income || prefs.annualIncome)
+                          }
+                        ]
+                      },
+                      {
+                        groupTitle: 'Family Background Preferences',
+                        items: [
+                          {
+                            id: 'familyFinancialStatus',
+                            label: 'Family Financial Status',
+                            icon: <Home size={14} className="text-[#5D34F7]" />,
+                            values: formatVals(prefs.familyFinancialStatus)
+                          }
+                        ]
+                      }
+                    ];
+
+                    const allGroupKeys = preferenceGroups.map(g => g.groupTitle);
+                    const allAreCollapsed = allGroupKeys.length > 0 && allGroupKeys.every(k => !!collapsedPrefSections[k]);
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Section Controls Bar */}
+                        <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-50">
+                          <span className="text-[11px] font-bold text-slate-400">
+                            {preferenceGroups.length} preference categories
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => toggleAllPrefSections(allGroupKeys)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-[#5D34F7] hover:text-[#4024DB] transition cursor-pointer group"
+                            title={allAreCollapsed ? 'Expand all categories' : 'Collapse all categories'}
+                          >
+                            <span>{allAreCollapsed ? 'Expand All' : 'Collapse All'}</span>
+                            <ChevronDown
+                              size={14}
+                              className={`transition-transform duration-200 ${allAreCollapsed ? '' : 'rotate-180'}`}
+                            />
+                          </button>
+                        </div>
+
+                        {preferenceGroups.map((group) => {
+                          const isCollapsed = !!collapsedPrefSections[group.groupTitle];
+                          const filledCount = group.items.filter(i => i.values && i.values.length > 0).length;
+
+                          return (
+                            <div 
+                              key={group.groupTitle} 
+                              className="rounded-2xl border border-slate-100 bg-slate-50/30 p-3.5 space-y-3 transition-all duration-200 hover:border-slate-200"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => togglePrefSection(group.groupTitle)}
+                                className="w-full flex items-center justify-between text-left cursor-pointer group/sec focus:outline-none"
+                                aria-expanded={!isCollapsed}
+                                title={isCollapsed ? `Expand ${group.groupTitle}` : `Collapse ${group.groupTitle}`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-[#5D34F7] group-hover/sec:scale-125 transition-transform"></span>
+                                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 group-hover/sec:text-[#5D34F7] transition-colors">
+                                    {group.groupTitle}
+                                  </h4>
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-slate-500 border border-slate-200/60 shadow-2xs">
+                                    {filledCount}/{group.items.length} set
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-slate-400 group-hover/sec:text-[#5D34F7] transition-colors">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline text-slate-400">
+                                    {isCollapsed ? 'Show' : 'Hide'}
+                                  </span>
+                                  <div className="w-6 h-6 rounded-lg bg-white border border-slate-200/80 flex items-center justify-center shadow-2xs group-hover/sec:border-[#5D34F7]/40 transition">
+                                    <ChevronDown
+                                      size={14}
+                                      className={`transition-transform duration-200 ${isCollapsed ? '' : 'rotate-180 text-[#5D34F7]'}`}
+                                    />
+                                  </div>
+                                </div>
+                              </button>
+
+                              {!isCollapsed && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 animate-in fade-in duration-200">
+                                  {group.items.map((item) => {
+                                    const hasValues = item.values && item.values.length > 0;
+                                    return (
+                                      <div 
+                                        key={item.id} 
+                                        className={`p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between gap-2 ${
+                                          hasValues 
+                                            ? 'bg-purple-50/25 border-purple-100/80 hover:bg-purple-50/40 hover:border-[#5D34F7]/30' 
+                                            : 'bg-white border-slate-100/90 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                          {item.icon}
+                                          <span>{item.label}</span>
+                                        </span>
+                                        <div className="flex flex-wrap items-center gap-1.5 min-h-[26px]">
+                                          {hasValues ? (
+                                            item.values.map((v) => (
+                                              <span 
+                                                key={v} 
+                                                className="px-2.5 py-1 bg-white text-[#5D34F7] text-xs font-bold rounded-lg border border-[#5D34F7]/20 shadow-2xs"
+                                              >
+                                                {v}
+                                              </span>
+                                            ))
+                                          ) : (
+                                            <span className="text-xs text-slate-400 italic font-medium px-1">
+                                              Not specified
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
 
               </main>
             </div>
@@ -2157,6 +4868,17 @@ export default function Profile() {
         <div className="max-w-7xl mx-auto lg:mx-0 lg:ml-6 xl:ml-10 px-4 mt-6 pb-24 lg:px-8">
           <div className="bg-white rounded-3xl p-8 shadow-md hover:shadow-lg border border-slate-100/60 space-y-8 transition-all duration-300">
             <div>
+              {/* Back to Profile Navigation Arrow */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('profile')}
+                className="inline-flex items-center gap-2 px-3.5 py-1.5 mb-4 text-xs font-bold text-slate-600 hover:text-[#5D34F7] bg-slate-100/80 hover:bg-[#5D34F7]/10 rounded-xl transition cursor-pointer group active:scale-95 shadow-2xs"
+                title="Back to My Profile"
+              >
+                <ArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform duration-200 text-[#5D34F7]" />
+                <span>Back to My Profile</span>
+              </button>
+
               <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3 mb-2">
                 <svg className="w-8 h-8 drop-shadow-sm shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect x="3" y="3" width="18" height="18" rx="5" fill="url(#pref_title_grad)" />
@@ -2258,6 +4980,54 @@ export default function Profile() {
                 <ChipSelector options={ALL_MARITAL_STATUSES} selected={prefMaritalStatuses} onChange={setPrefMaritalStatuses} title="Marital Status" />
               </div>
 
+              {/* Children Preferences */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                    <Baby size={18} className="text-[#5D34F7]" /> Preferred Children / Kids
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const isAllSelected = CHILDREN_FILTER_OPTIONS.every(c =>
+                        prefChildren.some(p => p === c || (isZeroOrNoChildren(c) && isZeroOrNoChildren(p)))
+                      );
+                      setPrefChildren(isAllSelected ? [] : [...CHILDREN_FILTER_OPTIONS]);
+                    }}
+                    className="text-xs text-[#5D34F7] font-semibold hover:underline bg-transparent border-0 cursor-pointer"
+                  >
+                    {CHILDREN_FILTER_OPTIONS.every(c =>
+                      prefChildren.some(p => p === c || (isZeroOrNoChildren(c) && isZeroOrNoChildren(p)))
+                    ) ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {CHILDREN_FILTER_OPTIONS.map(c => {
+                    const isSel = prefChildren.some(p => p === c || (isZeroOrNoChildren(c) && isZeroOrNoChildren(p)));
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => {
+                          if (isSel) {
+                            setPrefChildren(prefChildren.filter(x => !(x === c || (isZeroOrNoChildren(c) && isZeroOrNoChildren(x)))));
+                          } else {
+                            setPrefChildren([...prefChildren.filter(x => !(isZeroOrNoChildren(c) && isZeroOrNoChildren(x))), c]);
+                          }
+                        }}
+                        className={`px-4 py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          isSel
+                            ? 'bg-[#5D34F7] text-white border-[#5D34F7] shadow-sm'
+                            : 'bg-white text-gray-700 border-gray-200 hover:border-[#5D34F7]/40 hover:bg-purple-50/20'
+                        }`}
+                      >
+                        {c === 'No Children' ? '0 (No Children)' : c}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Dietary Preferences */}
               <div className="space-y-3">
                 <label className="text-sm font-bold text-gray-800">Preferred Diet</label>
@@ -2334,6 +5104,12 @@ export default function Profile() {
                 <ChipSelector options={ALL_LOCATIONS} selected={prefLocations} onChange={setPrefLocations} title="Location" />
               </div>
 
+              {/* Preferred Mother Tongue / Language */}
+              <div className="space-y-3">
+                <label className="text-sm font-bold text-gray-800">Preferred Mother Tongue / Language</label>
+                <ChipSelector options={ALL_COMMUNITIES} selected={prefLanguages} onChange={setPrefLanguages} title="Mother Tongue" />
+              </div>
+
               {/* Education Level */}
               <div className="space-y-3">
                 <label className="text-sm font-bold text-gray-800">Preferred Education Level</label>
@@ -2381,13 +5157,50 @@ export default function Profile() {
               </div>
             )}
 
-            <div className="pt-6 border-t border-gray-100 flex justify-end">
+            <div className="pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs font-bold text-slate-500">
+                <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-[#5D34F7] px-3.5 py-1.5 rounded-full border border-indigo-150 shadow-2xs font-bold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>
+                    Live Matching Profiles:{' '}
+                    <strong className="font-extrabold">
+                      {isCountingMatches
+                        ? '...'
+                        : liveMatchesCount !== null
+                        ? liveMatchesCount
+                        : '...'}
+                    </strong>
+                  </span>
+                </span>
+              </div>
               <button
                 onClick={handleSavePreferences}
                 disabled={isSaving}
-                className="px-8 py-3 bg-[#5D34F7] text-white rounded-xl text-sm font-bold shadow-md hover:bg-[#4024DB] transition-all cursor-pointer disabled:opacity-50"
+                className="w-full sm:w-auto px-8 py-3 bg-[#5D34F7] text-white rounded-xl text-sm font-bold shadow-md hover:bg-[#4024DB] transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                title={`Save partner preferences (${liveMatchesCount !== null ? liveMatchesCount : 0} matches)`}
               >
-                {isSaving ? 'Saving...' : 'Save Preferences'}
+                {isSaving ? (
+                  <span>Saving Preferences...</span>
+                ) : (
+                  <>
+                    <span>
+                      Save Preferences (
+                      {isCountingMatches
+                        ? '...'
+                        : `${liveMatchesCount !== null ? liveMatchesCount : 0} ${
+                            (liveMatchesCount !== null ? liveMatchesCount : 0) === 1
+                              ? 'match'
+                              : 'matches'
+                          }`}
+                      )
+                    </span>
+                    {liveMatchesCount !== null && !isCountingMatches && (
+                      <span className="bg-white/20 text-white text-xs px-2.5 py-0.5 rounded-full font-black border border-white/20">
+                        {liveMatchesCount}
+                      </span>
+                    )}
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -2408,11 +5221,504 @@ export default function Profile() {
         name={callModalData.name}
         photo={callModalData.photo}
       />
+
+      {/* Dedicated Description Verification Modal */}
+      {showDescriptionVerifyModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative space-y-5 animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-[#5D34F7]/10 flex items-center justify-center text-[#5D34F7] shrink-0">
+                  <ShieldCheck size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                    Description Verification
+                  </h3>
+                  <p className="text-xs text-slate-400 font-semibold">
+                    Submit your profile bio for official safety screening
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDescriptionVerifyModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Current Verification Status Indicator */}
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/60 flex items-center justify-between text-xs">
+              <span className="font-extrabold text-slate-600">Current Status:</span>
+              {profile?.aboutMeVerificationStatus === 'approved' ? (
+                <span className="font-black text-emerald-700 bg-emerald-100/70 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 size={12} /> Verified
+                </span>
+              ) : profile?.aboutMeVerificationStatus === 'pending' ? (
+                <span className="font-black text-amber-700 bg-amber-100/70 px-2.5 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                  <Clock size={12} /> Pending Review
+                </span>
+              ) : profile?.aboutMeVerificationStatus === 'rejected' ? (
+                <span className="font-black text-rose-700 bg-rose-100/70 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <XCircle size={12} /> Verification Failed
+                </span>
+              ) : (
+                <span className="font-bold text-slate-600 bg-slate-200/70 px-2.5 py-0.5 rounded-full">
+                  Not Submitted
+                </span>
+              )}
+            </div>
+
+            {/* Verification Rules & Policy Warning */}
+            <div className="bg-amber-50/60 border border-amber-200/70 rounded-2xl p-3 text-[11px] text-amber-900 space-y-1">
+              <p className="font-black flex items-center gap-1">
+                <Info size={13} className="text-amber-600" />
+                <span>Verification Guidelines:</span>
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 pl-1 font-medium text-amber-800">
+                <li>Write at least 20 characters describing your personality, values, and expectations.</li>
+                <li>Do NOT include contact details, phone numbers, email addresses, or external links.</li>
+                <li>Respectful language is required. Any offensive content will lead to rejection.</li>
+              </ul>
+            </div>
+
+            {/* Textarea Input */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <label className="font-bold text-slate-700">Profile Description / About Me</label>
+                <span className={`text-[11px] font-bold ${verifyBioText.length < 20 ? 'text-amber-600' : verifyBioText.length > 1000 ? 'text-rose-600' : 'text-slate-400'}`}>
+                  {verifyBioText.length} / 1000 characters (Min 20)
+                </span>
+              </div>
+              <textarea
+                value={verifyBioText}
+                onChange={(e) => {
+                  setVerifyBioText(e.target.value);
+                  setVerifyBioError('');
+                }}
+                rows={5}
+                placeholder="Write a clear, genuine description about yourself, your educational background, lifestyle, family values, and what kind of partner you hope to find..."
+                className="w-full p-4 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7]/40 focus:border-[#5D34F7] text-xs sm:text-sm text-slate-800 leading-relaxed resize-none transition bg-slate-50/50"
+              />
+            </div>
+
+            {/* Live Readability Preview Box */}
+            {verifyBioText.trim().length >= 20 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                  Public Preview Readability
+                </span>
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 text-xs text-slate-700 leading-relaxed whitespace-pre-line font-medium max-h-32 overflow-y-auto">
+                  {verifyBioText}
+                </div>
+              </div>
+            )}
+
+            {/* Error Message */}
+            {verifyBioError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-xs font-semibold rounded-2xl flex items-center gap-2">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>{verifyBioError}</span>
+              </div>
+            )}
+
+            {/* Success Message */}
+            {verifyBioSuccess && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-black rounded-2xl flex items-center gap-2">
+                <CheckCircle2 size={16} className="shrink-0" />
+                <span>✓ Description submitted for verification! Moderation review is now pending.</span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  const template = `Hello! I am a sincere and family-oriented professional based in ${p.city || 'India'}. I value honesty, mutual respect, and continuous personal growth. In my leisure time, I enjoy ${p.hobbies && p.hobbies.length > 0 ? p.hobbies.join(', ') : 'reading and traveling'}. I am looking for a compatible companion with shared values to embark on this journey together.`;
+                  setVerifyBioText(template);
+                  setVerifyBioError('');
+                }}
+                className="text-xs font-bold text-[#5D34F7] hover:underline cursor-pointer flex items-center gap-1 self-start sm:self-center"
+              >
+                <Sparkles size={13} />
+                <span>Use Bio Suggestion Template</span>
+              </button>
+
+              <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowDescriptionVerifyModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmittingVerifyBio || !verifyBioText.trim()}
+                  onClick={() => handleVerifyDescriptionSubmit()}
+                  className="px-6 py-2.5 rounded-xl bg-[#5D34F7] hover:bg-[#4024DB] disabled:opacity-50 text-white text-xs font-black shadow-md shadow-[#5D34F7]/20 transition cursor-pointer flex items-center gap-1.5"
+                >
+                  {isSubmittingVerifyBio ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Submitting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck size={14} />
+                      <span>Submit for Verification</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove College Confirmation Modal */}
+      {showRemoveCollegeModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-rose-50 text-rose-600 rounded-2xl border border-rose-100">
+                  <Trash2 size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Remove College</h3>
+                  <p className="text-xs text-slate-500">Education & Career Details</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRemoveCollegeModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Are you sure you want to remove <strong className="text-slate-900 font-bold">{college || p?.college || 'your college'}</strong> from your profile?
+              </p>
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs text-slate-600 space-y-1.5">
+                <div className="flex items-start gap-2">
+                  <Check size={14} className="text-emerald-600 mt-0.5 shrink-0" />
+                  <span>College / university will be cleared and no longer appear on your profile.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Check size={14} className="text-emerald-600 mt-0.5 shrink-0" />
+                  <span>Highest Qualification ({qualification || p?.education || 'Degree'}) will remain untouched.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRemoveCollegeModal(false)}
+                disabled={isRemovingCollege}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              {isEditing ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCollege('');
+                      setShowRemoveCollegeModal(false);
+                    }}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                  >
+                    <span>Clear from Form</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDirectRemoveCollege}
+                    disabled={isRemovingCollege}
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white text-xs font-bold transition shadow-sm cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isRemovingCollege ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        <span>Removing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={14} />
+                        <span>Remove & Save Now</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleDirectRemoveCollege}
+                  disabled={isRemovingCollege}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white text-xs font-bold transition shadow-sm cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isRemovingCollege ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Removing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+                      <span>Confirm & Remove</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification for Clipboard Copy */}
+      {copyToast.show && (
+        <div 
+          role="status" 
+          aria-live="polite"
+          className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[9999] animate-in fade-in slide-in-from-bottom-4 duration-200 pointer-events-none"
+        >
+          <div className={`px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 font-bold text-sm border backdrop-blur-md pointer-events-auto ${
+            copyToast.type === 'error'
+              ? 'bg-rose-900/95 text-white border-rose-700 shadow-rose-950/20'
+              : 'bg-slate-900/95 text-white border-slate-700/60 shadow-slate-950/30'
+          }`}>
+            {copyToast.type === 'error' ? (
+              <AlertCircle size={18} className="text-rose-400 shrink-0" />
+            ) : (
+              <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+            )}
+            <span>{copyToast.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Feature 19: Dedicated Change Profile Picture (DP) Modal */}
+      {changeDpModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-[#5D34F7]/10 text-[#5D34F7] rounded-2xl border border-[#5D34F7]/20">
+                  <Camera size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Change Profile Picture (DP)</h3>
+                  <p className="text-xs text-slate-500">Update your primary display picture</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setChangeDpModalOpen(false);
+                  setSelectedDpFile(null);
+                  setDpPreviewUrl(null);
+                  setDpUploadError('');
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Error / Success message */}
+            {dpUploadError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+                <AlertCircle size={15} className="shrink-0" />
+                <span>{dpUploadError}</span>
+              </div>
+            )}
+            {dpUploadSuccess && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl flex items-center gap-2">
+                <CheckCircle2 size={15} className="shrink-0" />
+                <span>Profile picture uploaded! Status: Pending verification.</span>
+              </div>
+            )}
+
+            {/* Picture Preview */}
+            <div className="flex flex-col items-center justify-center py-2 space-y-3">
+              <div className="relative w-32 h-32 rounded-2xl overflow-hidden bg-slate-100 border-4 border-white shadow-lg">
+                {dpPreviewUrl ? (
+                  <img
+                    src={dpPreviewUrl}
+                    alt="New DP Preview"
+                    className="w-full h-full object-cover"
+                  />
+                ) : displayPhotos.length > 0 ? (
+                  <img
+                    src={getPhotoUrl(displayPhotos[0], p.gender)}
+                    alt="Current Avatar"
+                    onError={(e) => handleImageError(e, p.gender)}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <img
+                    src={getDefaultAvatar(p.gender)}
+                    alt="Default Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                )}
+                {dpPreviewUrl && (
+                  <span className="absolute top-2 left-2 bg-[#5D34F7] text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-md shadow-xs">
+                    New Preview
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 font-medium">
+                {dpPreviewUrl ? 'Selected image preview' : 'Current display picture'}
+              </p>
+            </div>
+
+            {/* File Input Picker */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Select New Picture
+              </label>
+              <input
+                type="file"
+                id="dp-modal-file-input"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (!file.type || !file.type.startsWith('image/')) {
+                    setDpUploadError('Please select a valid image file (JPG, PNG, WebP).');
+                    return;
+                  }
+                  if (file.size > 10 * 1024 * 1024) {
+                    setDpUploadError('Image size must be less than 10MB.');
+                    return;
+                  }
+                  setSelectedDpFile(file);
+                  setDpPreviewUrl(URL.createObjectURL(file));
+                  setDpUploadError('');
+                }}
+                className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#5D34F7]/10 file:text-[#5D34F7] hover:file:bg-[#5D34F7]/20 file:cursor-pointer cursor-pointer border border-slate-200 rounded-xl p-1 bg-slate-50/50"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Accepted: JPG, PNG, WebP (Max 10MB)
+              </p>
+            </div>
+
+            {/* Verification Status Notice */}
+            <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200/80 text-xs text-amber-900 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-amber-950">
+                <Clock size={14} className="text-amber-600 shrink-0" />
+                <span>Verification Process</span>
+              </div>
+              <p className="text-[11px] text-amber-800 leading-relaxed">
+                Newly uploaded profile pictures undergo quick admin verification to ensure profile authenticity. Your new photo will be tagged as <strong>Pending Verification</strong> until approved.
+              </p>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isUploadingDp}
+                onClick={() => {
+                  setChangeDpModalOpen(false);
+                  setSelectedDpFile(null);
+                  setDpPreviewUrl(null);
+                  setDpUploadError('');
+                }}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!selectedDpFile || isUploadingDp}
+                onClick={async () => {
+                  if (!selectedDpFile) return;
+                  setIsUploadingDp(true);
+                  setDpUploadError('');
+                  try {
+                    const uploadedNames = await uploadFiles([selectedDpFile]);
+                    const existing = (Array.isArray(photos) && photos.length > 0)
+                      ? photos
+                      : ((profile?.profile?.photos || profile?.photos || []));
+                    const newPhotos = [uploadedNames[0], ...existing.filter((_, i) => i !== 0)];
+                    setPhotos(newPhotos);
+                    await savePhotosDirectly(newPhotos);
+                    setDpUploadSuccess(true);
+                    setTimeout(() => {
+                      setChangeDpModalOpen(false);
+                      setSelectedDpFile(null);
+                      setDpPreviewUrl(null);
+                      setDpUploadSuccess(false);
+                    }, 1200);
+                  } catch (err) {
+                    setDpUploadError(err.response?.data?.message || err.message || 'Failed to update profile picture.');
+                  } finally {
+                    setIsUploadingDp(false);
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl bg-[#5D34F7] hover:bg-[#4024DB] disabled:opacity-50 text-white text-xs font-black shadow-md shadow-[#5D34F7]/20 transition cursor-pointer flex items-center gap-1.5"
+              >
+                {isUploadingDp ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Uploading DP...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check size={14} />
+                    <span>Upload & Save DP</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIP Relationship Consultant Modal */}
+      <VipConsultantModal
+        isOpen={showVipConsultantModal}
+        onClose={() => setShowVipConsultantModal(false)}
+        currentUser={viewerUser}
+      />
+
+      {/* VIP Shaadi – Get Invited Modal */}
+      <VipShaadiModal
+        isOpen={showVipShaadiModal}
+        onClose={() => setShowVipShaadiModal(false)}
+        currentUser={profile || viewerUser}
+        onEnquirySubmitted={() => fetchVipEnquiry()}
+      />
+
+      {/* Full-Screen Image Lightbox Viewer */}
+      <FullScreenImageViewer
+        isOpen={fullScreenImage.isOpen}
+        onClose={() => setFullScreenImage(prev => ({ ...prev, isOpen: false }))}
+        images={fullScreenImage.images}
+        initialIndex={fullScreenImage.initialIndex}
+        userName={fullScreenImage.userName}
+        gender={fullScreenImage.gender}
+        targetUserId={fullScreenImage.targetUserId}
+        currentUserId={viewerUser?._id}
+      />
     </div>
   );
 }
 
-function ProfileItem({ icon, label, value, isPhone, onClick }) {
+function ProfileItem({ icon, label, value, isPhone, isCopyable, onCopy, isCopied, copyTitle, onClick, onRemove, removeTitle }) {
   if (!value && value !== 0) return null;
   return (
     <div 
@@ -2424,15 +5730,52 @@ function ProfileItem({ icon, label, value, isPhone, onClick }) {
       <div className="mt-0.5 text-[#5D34F7]">{icon}</div>
       <div className="flex-1 min-w-0">
         <span className="block text-xs text-gray-500 font-medium leading-none mb-1">{label}</span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-between">
           <span className={`block text-sm text-gray-800 font-bold break-words leading-tight ${onClick ? 'group-hover/item:text-[#5D34F7] transition-colors' : ''}`}>
             {value}
           </span>
-          {isPhone && value && (
-            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 text-[10px] font-black uppercase rounded-lg border border-emerald-500/20 tracking-wider flex items-center gap-1 group-hover/item:bg-emerald-500 group-hover/item:text-white transition-colors">
-              Tap to call
-            </span>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {isPhone && value && (
+              <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 text-[10px] font-black uppercase rounded-lg border border-emerald-500/20 tracking-wider flex items-center gap-1 group-hover/item:bg-emerald-500 group-hover/item:text-white transition-colors">
+                Tap to call
+              </span>
+            )}
+            {isCopyable && (
+              <button
+                type="button"
+                onClick={onCopy}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#5D34F7]/10 hover:bg-[#5D34F7]/20 text-[#5D34F7] text-[11px] font-black tracking-wider rounded-lg border border-[#5D34F7]/20 uppercase transition-all cursor-pointer active:scale-95 group/copy"
+                title={copyTitle || "Copy to clipboard"}
+                aria-label={copyTitle || "Copy to clipboard"}
+              >
+                {isCopied ? (
+                  <>
+                    <Check size={12} className="text-emerald-600 stroke-[2.5]" />
+                    <span className="text-emerald-600 text-[10px] font-extrabold normal-case">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} className="opacity-75 group-hover/copy:opacity-100" />
+                    <span className="text-[10px] font-bold">Copy</span>
+                  </>
+                )}
+              </button>
+            )}
+            {onRemove && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove();
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white text-[11px] font-bold rounded-lg border border-rose-200 hover:border-rose-600 transition-all cursor-pointer active:scale-95 shadow-2xs"
+                title={removeTitle || "Remove"}
+              >
+                <Trash2 size={11} />
+                <span>Remove</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

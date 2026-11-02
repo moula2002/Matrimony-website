@@ -23,6 +23,8 @@ import ScrollToTop from './components/ScrollToTop';
 import Search from './pages/Search';
 import MembershipPlans from './pages/MembershipPlans';
 import Contacts from './pages/Contacts';
+import SafetyCenter from './pages/SafetyCenter';
+import AstroChat from './pages/AstroChat';
 
 function App() {
   return (
@@ -42,21 +44,26 @@ function App() {
         <Route element={<MainLayout />}>
           <Route path="/matches" element={<Matches />} />
           <Route path="/home" element={<Home />} />
-          <Route path="/feed" element={<Navigate to="/home" replace />} />
+          <Route path="/feed" element={<Navigate to="/preference-matches" replace />} />
+          <Route path="/feeds" element={<Navigate to="/preference-matches" replace />} />
           <Route path="/preference-matches" element={<PreferenceMatches />} />
           <Route path="/interests" element={<Interests />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/alerts" element={<Notifications />} />
           <Route path="/search" element={<Search />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/profile/:id" element={<Profile />} />
+          <Route path="/astrochat" element={<AstroChat />} />
           <Route path="/plans" element={<MembershipPlans />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/help" element={<Help />} />
           <Route path="/legal/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/legal/terms-conditions" element={<TermsConditions />} />
           <Route path="/legal/contact-us" element={<ContactUs />} />
+          <Route path="/safety-center" element={<SafetyCenter />} />
+          <Route path="/legal/safety-center" element={<SafetyCenter />} />
         </Route>
 
         {/* Default route */}

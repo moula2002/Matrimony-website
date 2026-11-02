@@ -1,18 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api, { getPhotoUrl } from '../api/axios';
+import api, { getPhotoUrl, getDefaultAvatar, handleImageError } from '../api/axios';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faHeart, faCommentDots, faBell, faCheck, faTimes, 
   faSpinner, faUser, faMapMarkerAlt, faSyncAlt,
   faEye, faStar, faPhone, faChevronRight, faCopy,
-  faUserCheck, faBriefcase
+  faUserCheck, faBriefcase, faExpand
 } from '@fortawesome/free-solid-svg-icons';
 import loadingImg from '../assets/loading.png';
 import CallModal from '../components/CallModal';
 import MessageSentModal from '../components/MessageSentModal';
 import ContactInfoCard from '../components/ContactInfoCard';
+import PhotoVerifiedBadge from '../components/PhotoVerifiedBadge';
+import PremiumPlanBadge from '../components/PremiumPlanBadge';
+import FullScreenImageViewer from '../components/FullScreenImageViewer';
+import EmptyState from '../components/EmptyState';
 import { getCachedUnlockedContacts, syncContactedProfiles } from '../utils/contactManager';
+import { formatProfileCreatedBy, formatSiblings, formatLanguages } from '../utils/profileHelpers';
 
 const getReligionIcon = (rel) => {
   const icons = {
@@ -35,6 +40,7 @@ export default function Notifications() {
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState(null);
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'requests', 'messages', 'views'
+  const [fetchError, setFetchError] = useState(false);
   const [callModalData, setCallModalData] = useState({ isOpen: false, phone: '', name: '', photo: '' });
 
   // Profile Details Preview Modal state
@@ -53,6 +59,7 @@ export default function Notifications() {
 
   const fetchNotifications = async (isManualRefresh = false) => {
     try {
+      setFetchError(false);
       if (isManualRefresh) setRefreshing(true);
       else setLoading(true);
       
@@ -60,6 +67,7 @@ export default function Notifications() {
       setNotifications(res.data || { interests: [], messages: [], views: [] });
     } catch (err) {
       console.error('Error fetching notifications:', err);
+      setFetchError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -95,6 +103,30 @@ export default function Notifications() {
     }
   };
 
+  // Full-Screen Lightbox Image Viewer State
+  const [fullScreenImage, setFullScreenImage] = useState({
+    isOpen: false,
+    images: [],
+    initialIndex: 0,
+    userName: '',
+    gender: 'Male',
+    targetUserId: null
+  });
+
+  const handleOpenFullScreenImage = (match, initialIndex = 0) => {
+    if (!match) return;
+    const p = match.profile || {};
+    const photosList = Array.isArray(p.photos) && p.photos.length > 0 ? p.photos : [];
+    setFullScreenImage({
+      isOpen: true,
+      images: photosList,
+      initialIndex,
+      userName: p.name || match.email || 'Member',
+      gender: p.gender || 'Male',
+      targetUserId: match._id
+    });
+  };
+
   const handlePreviewProfile = async (targetUser, initialPhoto = null) => {
     if (!targetUser) return;
     const p = targetUser.profile || {};
@@ -105,14 +137,7 @@ export default function Notifications() {
     setKundaliError('');
 
     if (targetUser._id) {
-      // Record view to backend server
-      try {
-        await api.post(`/users/view/${targetUser._id}`);
-      } catch (err) {
-        console.error('Error recording view in Notifications:', err);
-      }
-
-      // Fetch full profile details
+      // Fetch full profile details (view counting is strictly triggered on full-screen photo open)
       try {
         const res = await api.get(`/users/profile/${targetUser._id}`);
         if (res.data) {
@@ -216,24 +241,14 @@ export default function Notifications() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 self-start md:self-center">
+          <div className="flex items-center gap-3 self-start md:self-center flex-wrap">
             {/* Membership Plan Pill / Badge inside Notifications Header */}
-            <div 
-              onClick={() => navigate('/plans')}
-              className="flex items-center gap-3 p-2.5 px-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl border border-slate-800 shadow-md cursor-pointer hover:scale-[1.02] transition-transform shrink-0"
-              title="Click to view plans"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm">{isPremium ? '👑' : '⚡'}</span>
-                <div className="text-left">
-                  <span className="text-[9px] uppercase font-bold text-indigo-300 block tracking-wider leading-none mb-0.5">Membership Plan</span>
-                  <span className="text-xs font-black text-white tracking-wide">{planName}</span>
-                </div>
-              </div>
-              <span className="px-3 py-1 bg-[#5D34F7] hover:bg-[#4024DB] text-white text-[10px] font-black rounded-lg transition shadow-xs ml-1">
-                {isPremium ? 'Manage' : 'Upgrade'}
-              </span>
-            </div>
+            <PremiumPlanBadge 
+              user={profile} 
+              variant="header" 
+              isCurrentUser={true} 
+              onClick={() => navigate('/plans')} 
+            />
 
             <button
               onClick={() => fetchNotifications(true)}
@@ -315,30 +330,50 @@ export default function Notifications() {
               <img src={loadingImg} alt="Loading..." className="h-12 w-12 animate-spin object-contain" />
               <p className="text-slate-400 text-xs font-bold uppercase tracking-wider">Fetching updates...</p>
             </div>
+          ) : fetchError ? (
+            <EmptyState
+              type="error"
+              title="Unable to Load Notifications"
+              description="We encountered an issue retrieving your latest notifications and updates. Please check your network connection and try again."
+              actionText="Retry Notifications"
+              onAction={() => fetchNotifications(true)}
+            />
           ) : totalCount === 0 ? (
-            <div className="flex flex-col items-center justify-center text-center py-16 px-4 space-y-4">
-              <div className="w-20 h-20 rounded-3xl bg-slate-50 border border-slate-100 flex items-center justify-center text-[#5D34F7]/40 text-3xl shadow-inner">
-                <FontAwesomeIcon icon={faBell} />
-              </div>
-              <div className="space-y-1 max-w-sm">
-                <h3 className="font-black text-slate-900 text-lg">You're All Caught Up!</h3>
-                <p className="text-slate-500 text-xs font-semibold leading-relaxed">
-                  There are no new pending notifications. When members send you connection requests or messages, they will show up here.
-                </p>
-              </div>
-              <div className="pt-2 flex items-center gap-3">
-                <button
-                  onClick={() => navigate('/preference-matches')}
-                  className="px-5 py-2.5 bg-[#5D34F7] hover:bg-[#4024DB] text-white font-extrabold text-xs rounded-xl shadow-md shadow-[#5D34F7]/20 transition cursor-pointer"
-                >
-                  Explore Matches
-                </button>
-              </div>
-            </div>
+            <EmptyState
+              type="notifications"
+              title="You're All Caught Up!"
+              description="There are no pending connection requests, unread messages, or new contacts at this moment."
+              badgeText="All Clean"
+              suggestions={[
+                'Explore active preference matches and express interest',
+                'Ensure your profile photos and bio are up to date to attract more visits',
+                'Use Advanced Search to discover compatible partners'
+              ]}
+              actionText="Discover Matches"
+              onAction={() => navigate('/preference-matches')}
+              secondaryActionText="Search Profiles"
+              onSecondaryAction={() => navigate('/search')}
+            />
           ) : (
             <div className="space-y-8">
-              
               {/* CONNECTION REQUESTS SECTION */}
+              {activeTab === 'requests' && interestsCount === 0 && (
+                <EmptyState
+                  type="interests"
+                  title="No Pending Connection Requests"
+                  description="You don't have any incoming interest requests waiting for your response."
+                  badgeText="0 Pending"
+                  suggestions={[
+                    'Browse new recommendations to find your compatible partner',
+                    'Keep your profile complete with verified photo for 3x more interest'
+                  ]}
+                  actionText="Discover Matches"
+                  onAction={() => navigate('/preference-matches')}
+                  secondaryActionText="View Sent Interests"
+                  onSecondaryAction={() => navigate('/interests')}
+                />
+              )}
+
               {(activeTab === 'all' || activeTab === 'requests') && interestsCount > 0 && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -370,14 +405,23 @@ export default function Notifications() {
                               title="Click to view profile details"
                             >
                               {photoUrl ? (
-                                <img src={photoUrl} alt={p.name || 'Member'} className="w-full h-full object-cover" />
+                                <img 
+                                  src={photoUrl} 
+                                  alt={p.name || 'Member'} 
+                                  onError={(e) => handleImageError(e, p.gender)}
+                                  className="w-full h-full object-cover" 
+                                />
                               ) : (
-                                <FontAwesomeIcon icon={faUser} className="text-[#5D34F7] text-xl" />
+                                <img 
+                                  src={getDefaultAvatar(p.gender)} 
+                                  alt={p.name || 'Member'} 
+                                  className="w-full h-full object-cover" 
+                                />
                               )}
                             </div>
 
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h4 
                                   onClick={() => handlePreviewProfile(sender, photoUrl)}
                                   className="font-black text-slate-900 text-base leading-tight hover:text-[#5D34F7] cursor-pointer transition-colors"
@@ -385,6 +429,7 @@ export default function Notifications() {
                                 >
                                   {p.name || sender.email || 'Matrimony Member'}
                                 </h4>
+                                <PremiumPlanBadge user={sender} variant="badge" size="xs" />
                                 <span className="px-2 py-0.5 bg-indigo-50 text-[#5D34F7] text-[10px] font-black uppercase rounded-md">
                                   Request
                                 </span>
@@ -482,6 +527,21 @@ export default function Notifications() {
               )}
 
               {/* MESSAGES SECTION */}
+              {activeTab === 'messages' && messagesCount === 0 && (
+                <EmptyState
+                  type="messages"
+                  title="No Unread Messages"
+                  description="You have read all received messages or haven't started conversations yet."
+                  badgeText="0 Unread"
+                  suggestions={[
+                    'Visit your Messages tab to chat with connected members',
+                    'Send interests to open direct communication channels'
+                  ]}
+                  actionText="Open Messages"
+                  onAction={() => navigate('/messages')}
+                />
+              )}
+
               {(activeTab === 'all' || activeTab === 'messages') && messagesCount > 0 && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -512,21 +572,33 @@ export default function Notifications() {
                               title="Click to view profile details"
                             >
                               {photoUrl ? (
-                                <img src={photoUrl} alt={p.name || 'Member'} className="w-full h-full object-cover" />
+                                <img 
+                                  src={photoUrl} 
+                                  alt={p.name || 'Member'} 
+                                  onError={(e) => handleImageError(e, p.gender)}
+                                  className="w-full h-full object-cover" 
+                                />
                               ) : (
-                                <FontAwesomeIcon icon={faUser} className="text-blue-500 text-lg" />
+                                <img 
+                                  src={getDefaultAvatar(p.gender)} 
+                                  alt={p.name || 'Member'} 
+                                  className="w-full h-full object-cover" 
+                                />
                               )}
                               <span className="absolute bottom-1 right-1 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
                             </div>
 
                             <div className="space-y-1">
-                              <h4 
-                                onClick={() => handlePreviewProfile(sender, photoUrl)}
-                                className="font-black text-slate-900 text-sm leading-tight hover:text-blue-600 cursor-pointer transition-colors"
-                                title="Click to view profile details"
-                              >
-                                {p.name || sender.email || 'Matrimony Member'}
-                              </h4>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 
+                                  onClick={() => handlePreviewProfile(sender, photoUrl)}
+                                  className="font-black text-slate-900 text-sm leading-tight hover:text-blue-600 cursor-pointer transition-colors"
+                                  title="Click to view profile details"
+                                >
+                                  {p.name || sender.email || 'Matrimony Member'}
+                                </h4>
+                                <PremiumPlanBadge user={sender} variant="badge" size="xs" />
+                              </div>
                               <p className="text-slate-600 text-xs font-medium bg-slate-50 p-3 rounded-2xl border border-slate-100 max-w-lg line-clamp-1">
                                 "{msg.text}"
                               </p>
@@ -543,7 +615,7 @@ export default function Notifications() {
                             </button>
 
                             <button
-                              onClick={() => navigate('/messages')}
+                              onClick={() => navigate('/messages', { state: { contactId: sender?._id || sender?.id || sender } })}
                               className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white text-xs font-black rounded-xl shadow-md shadow-blue-500/20 transition cursor-pointer flex items-center justify-center gap-2 active:scale-95"
                             >
                               <FontAwesomeIcon icon={faCommentDots} />
@@ -558,16 +630,33 @@ export default function Notifications() {
                 </div>
               )}
 
-              {/* PROFILE VIEWS SECTION */}
+              {/* PROFILE VIEWS / CONTACTS SECTION */}
+              {activeTab === 'views' && viewsCount === 0 && (
+                <EmptyState
+                  type="contacts"
+                  title="No Unlocked Contacts Yet"
+                  description="You haven't unlocked any verified phone numbers or direct contact details yet."
+                  badgeText="0 Contacts"
+                  suggestions={[
+                    'View verified matches and unlock their phone details',
+                    'Upgrade to Premium to get direct contact access'
+                  ]}
+                  actionText="Find Matches"
+                  onAction={() => navigate('/preference-matches')}
+                  secondaryActionText="View Membership Plans"
+                  onSecondaryAction={() => navigate('/plans')}
+                />
+              )}
+
               {(activeTab === 'all' || activeTab === 'views') && viewsCount > 0 && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
                       <FontAwesomeIcon icon={faEye} className="text-amber-500 text-base" />
-                      <span>Recent Contacts Viewed</span>
+                      <span>Recent Contacts</span>
                     </h2>
                     <span className="px-2.5 py-1 bg-amber-50 text-amber-600 text-xs font-extrabold rounded-lg">
-                      {viewsCount} Views
+                      {viewsCount} Contacts
                     </span>
                   </div>
 
@@ -589,14 +678,23 @@ export default function Notifications() {
                               title="Click to view profile details"
                             >
                               {photoUrl ? (
-                                <img src={photoUrl} alt={p.name || 'Member'} className="w-full h-full object-cover" />
+                                <img 
+                                  src={photoUrl} 
+                                  alt={p.name || 'Member'} 
+                                  onError={(e) => handleImageError(e, p.gender)}
+                                  className="w-full h-full object-cover" 
+                                />
                               ) : (
-                                <FontAwesomeIcon icon={faUser} className="text-amber-400 text-xl" />
+                                <img 
+                                  src={getDefaultAvatar(p.gender)} 
+                                  alt={p.name || 'Member'} 
+                                  className="w-full h-full object-cover" 
+                                />
                               )}
                             </div>
 
                             <div className="space-y-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h4 
                                   onClick={() => handlePreviewProfile(viewer, photoUrl)}
                                   className="font-black text-slate-900 text-base leading-tight hover:text-amber-600 cursor-pointer transition-colors"
@@ -604,8 +702,9 @@ export default function Notifications() {
                                 >
                                   {p.name || viewer.email || 'Matrimony Member'}
                                 </h4>
+                                <PremiumPlanBadge user={viewer} variant="badge" size="xs" />
                                 <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[10px] font-black uppercase rounded-md">
-                                  Viewed Profile
+                                  Contact
                                 </span>
                               </div>
 
@@ -690,16 +789,36 @@ export default function Notifications() {
 
               {/* Left Column: Image Preview Gallery */}
               <div className="w-full md:w-1/2 bg-slate-50 flex flex-col justify-between p-6 border-b md:border-b-0 md:border-r border-slate-100 min-h-[350px]">
-                <div className="flex-1 flex items-center justify-center relative rounded-2xl overflow-hidden bg-slate-950 md:h-[400px]">
+                <div
+                  onClick={() => {
+                    const photos = p.photos || [];
+                    const idx = photos.indexOf(activePreviewImage);
+                    handleOpenFullScreenImage(previewMatch, idx >= 0 ? idx : 0);
+                  }}
+                  className="flex-1 flex items-center justify-center relative rounded-2xl overflow-hidden bg-slate-950 md:h-[400px] cursor-pointer group/previewimg"
+                  title="Click to view photo in full screen"
+                >
                   {activePreviewImage ? (
                     <img 
-                      src={getPhotoUrl(activePreviewImage)} 
-                      alt={p.name} 
-                      className="w-full h-full object-contain"
+                      src={getPhotoUrl(activePreviewImage, p.gender)} 
+                      alt={p.name || 'Member'} 
+                      onError={(e) => handleImageError(e, p.gender)}
+                      className="w-full h-full object-contain transition-transform duration-300 group-hover/previewimg:scale-102"
                     />
                   ) : (
-                    <FontAwesomeIcon icon={faUser} className="text-[#5D34F7]/20 text-7xl" />
+                    <img 
+                      src={getDefaultAvatar(p.gender)} 
+                      alt={p.name || 'Member'} 
+                      className="w-full h-full object-contain opacity-90 p-8" 
+                    />
                   )}
+                  {activePreviewImage && (
+                    <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-white text-[11px] font-bold opacity-0 group-hover/previewimg:opacity-100 transition-opacity">
+                      <FontAwesomeIcon icon={faExpand} className="text-[#5D34F7]" />
+                      <span>Full Screen</span>
+                    </div>
+                  )}
+                  <PhotoVerifiedBadge user={previewMatch} variant="photo" className="absolute top-4 right-4" />
                 </div>
 
                 {/* Thumbnails Gallery */}
@@ -715,7 +834,12 @@ export default function Notifications() {
                             : 'border-transparent hover:border-slate-300'
                         }`}
                       >
-                        <img src={getPhotoUrl(photo)} alt="" className="w-full h-full object-cover" />
+                        <img 
+                          src={getPhotoUrl(photo, p.gender)} 
+                          alt="" 
+                          onError={(e) => handleImageError(e, p.gender)}
+                          className="w-full h-full object-cover" 
+                        />
                       </button>
                     ))}
                   </div>
@@ -728,11 +852,12 @@ export default function Notifications() {
                   {/* Name and Basic Info */}
                   <div>
                     <div className="flex justify-between items-start">
-                      <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                        {p.name || previewMatch.email || 'Matrimony Member'}
-                        {previewMatch.verificationStatus === 'approved' && <FontAwesomeIcon icon={faUserCheck} className="text-blue-500 text-xl ml-1" title="Verified Profile" />}
+                      <h2 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2 flex-wrap">
+                        <span>{p.name || previewMatch.email || 'Matrimony Member'}</span>
+                        <PhotoVerifiedBadge user={previewMatch} variant="badge" />
                         {p.gender === 'Female' && <span className="text-pink-500 text-lg leading-none" title="Female">♀️</span>}
                         {p.gender === 'Male' && <span className="text-blue-500 text-lg leading-none" title="Male">♂️</span>}
+                        <PremiumPlanBadge user={previewMatch} variant="badge" size="sm" />
                       </h2>
                       {(() => {
                         const displayUid = previewMatch.uid || p.uid || (previewMatch._id ? previewMatch._id.substring(previewMatch._id.length - 8).toUpperCase() : '');
@@ -753,15 +878,15 @@ export default function Notifications() {
                         );
                       })()}
                     </div>
-                    <div className="flex items-center gap-4 mt-1">
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <p className="text-slate-400 text-xs font-bold flex items-center gap-1">
                         <FontAwesomeIcon icon={faMapMarkerAlt} className="text-[#5D34F7]" />
                         {p.location || p.city || 'Location N/A'}
                       </p>
-                      {previewMatch.matchesCount !== undefined && (
-                        <div className="bg-rose-50 text-rose-500 px-2 py-1 rounded-xl text-[10px] font-black flex items-center gap-1 shadow-sm border border-rose-100">
-                          <FontAwesomeIcon icon={faHeart} className="text-[10px]" />
-                          {previewMatch.matchesCount} Matches
+                      {formatProfileCreatedBy(p.profileFor || previewMatch.profileFor) && (
+                        <div className="bg-indigo-50 text-[#5D34F7] px-2.5 py-1 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 shadow-2xs border border-indigo-150">
+                          <FontAwesomeIcon icon={faUser} className="text-[10px]" />
+                          <span>Profile Created By: <strong className="font-black">{formatProfileCreatedBy(p.profileFor || previewMatch.profileFor)}</strong></span>
                         </div>
                       )}
                     </div>
@@ -770,8 +895,20 @@ export default function Notifications() {
                   {/* About / Description */}
                   {(p.about || p.bio) && (
                     <div className="space-y-2">
-                      <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">About Me</h4>
-                      <p className="text-slate-600 text-[13px] leading-relaxed font-medium bg-slate-50 p-4 rounded-2xl border border-slate-100/60">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider">About Me / Description</h4>
+                        {previewMatch.aboutMeVerificationStatus === 'approved' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1 shadow-2xs">
+                            ✓ Verified Description
+                          </span>
+                        )}
+                        {previewMatch.aboutMeVerificationStatus === 'pending' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1 shadow-2xs">
+                            ⏳ Under Review
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-600 text-[13px] leading-relaxed font-medium bg-slate-50 p-4 rounded-2xl border border-slate-100/60 whitespace-pre-line">
                         {p.about || p.bio}
                       </p>
                     </div>
@@ -817,6 +954,14 @@ export default function Notifications() {
                           {p.familyFinancialStatus}
                         </div>
                       )}
+                      <div>
+                        <span className="text-slate-400 text-[10px] block mb-0.5">SIBLINGS</span>
+                        {formatSiblings(p)}
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-slate-400 text-[10px] block mb-0.5">SPOKEN LANGUAGES</span>
+                        <span className="text-sky-700 font-extrabold">{formatLanguages(p.languages || p.motherTongue)}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -893,7 +1038,7 @@ export default function Notifications() {
                   {isConnected ? (
                     <div className="flex gap-4">
                       <button
-                        onClick={() => navigate('/messages')}
+                        onClick={() => navigate('/messages', { state: { contactId: previewMatch?._id || previewMatch?.user?._id } })}
                         className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 text-[#5D34F7] rounded-2xl font-black text-center text-xs flex items-center justify-center gap-1.5 border border-indigo-150 transition cursor-pointer"
                       >
                         <FontAwesomeIcon icon={faCommentDots} className="text-sm" />
@@ -939,7 +1084,7 @@ export default function Notifications() {
                         <span className="text-xs font-black text-slate-600 uppercase tracking-wider">Next Step:</span>
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => navigate('/messages')}
+                            onClick={() => navigate('/messages', { state: { contactId: previewMatch?._id || previewMatch?.user?._id } })}
                             className="px-4 py-2 bg-[#5D34F7] hover:bg-[#4024DB] text-white font-black text-xs rounded-xl transition flex items-center gap-1.5 shadow-md shadow-[#5D34F7]/20 cursor-pointer active:scale-95"
                           >
                             <FontAwesomeIcon icon={faCommentDots} />
@@ -1000,8 +1145,9 @@ export default function Notifications() {
         onClose={() => setMessageSentModal({ isOpen: false, user: null })}
         user={messageSentModal.user}
         onChat={() => {
+          const targetUser = messageSentModal.user;
           setMessageSentModal({ isOpen: false, user: null });
-          navigate('/messages');
+          navigate('/messages', { state: { contactId: targetUser?._id || targetUser?.user?._id } });
         }}
         onCall={(phone, name, photo) => {
           setMessageSentModal({ isOpen: false, user: null });
@@ -1012,6 +1158,18 @@ export default function Notifications() {
             photo: photo || (previewMatch?.profile?.photos && previewMatch?.profile?.photos[0]) || null
           });
         }}
+      />
+
+      {/* Full Screen Image Viewer Lightbox */}
+      <FullScreenImageViewer
+        isOpen={fullScreenImage.isOpen}
+        onClose={() => setFullScreenImage(prev => ({ ...prev, isOpen: false }))}
+        images={fullScreenImage.images}
+        initialIndex={fullScreenImage.initialIndex}
+        userName={fullScreenImage.userName}
+        gender={fullScreenImage.gender}
+        targetUserId={fullScreenImage.targetUserId}
+        currentUserId={profile?._id}
       />
     </div>
   );

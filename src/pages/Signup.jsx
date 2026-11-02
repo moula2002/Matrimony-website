@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import maleAvatar from '../assets/male_avatar.png';
 import femaleAvatar from '../assets/female_avatar.png';
+import { fetchCommunitiesData, getSubCommunityOptions } from '../utils/communityService';
+import { CHILDREN_FILTER_OPTIONS, normalizeChildrenForBackend, normalizeChildrenFromBackend, isZeroOrNoChildren } from '../utils/profileHelpers';
 
 const hobbyIcons = {
   'Art': '🎨',
@@ -374,7 +376,7 @@ import {
   ChevronLeft, UserPlus, User, Calendar, Users, Building,
   Mail, Phone, Camera, Contact, ChevronDown, Landmark,
   Map, Accessibility, Activity, ArrowUpDown, Utensils,
-  GraduationCap, School, Briefcase, Banknote, Badge, PencilLine, Trash2, Plus
+  GraduationCap, School, Briefcase, Banknote, Badge, PencilLine, Trash2, Plus, Clock
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 
@@ -395,6 +397,8 @@ export default function Signup() {
   // Form State
   const [profileFor, setProfileFor] = useState(() => sessionStorage.getItem('prefill_profileFor') || '');
   const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState(() => sessionStorage.getItem('prefill_gender') || '');
   const [religion, setReligion] = useState(() => sessionStorage.getItem('prefill_religion') || '');
@@ -409,7 +413,13 @@ export default function Signup() {
   const [locationSearchResults, setLocationSearchResults] = useState([]);
   const [isSearchingLocation, setIsSearchingLocation] = useState(false);
   const [subCommunity, setSubCommunity] = useState('');
+  const [serverSubCommunities, setServerSubCommunities] = useState(null);
+  const [timeOfBirth, setTimeOfBirth] = useState('');
+  const [astroCoords, setAstroCoords] = useState(null);
   const [maritalStatus, setMaritalStatus] = useState('');
+  const [hasChildren, setHasChildren] = useState('No');
+  const [childrenCount, setChildrenCount] = useState(0);
+  const [childrenStayingWith, setChildrenStayingWith] = useState('');
   const [height, setHeight] = useState('');
   const [diet, setDiet] = useState('');
   const [qualification, setQualification] = useState('');
@@ -480,6 +490,7 @@ export default function Signup() {
   const [prefCastes, setPrefCastes] = useState([]);
   const [prefCommunities, setPrefCommunities] = useState([]);
   const [prefMaritalStatuses, setPrefMaritalStatuses] = useState([]);
+  const [prefChildren, setPrefChildren] = useState([]);
   const [prefHeightMin, setPrefHeightMin] = useState('5\'0" (152 cm)');
   const [prefHeightMax, setPrefHeightMax] = useState('6\'0" (182 cm)');
   const [prefDiets, setPrefDiets] = useState([]);
@@ -535,7 +546,30 @@ export default function Signup() {
       }
     };
     fetchPlans();
+    fetchCommunitiesData()
+      .then(data => {
+        if (data?.subcommunities) {
+          setServerSubCommunities(data.subcommunities);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Geocode city for Astrology API
+  useEffect(() => {
+    if (!cityLoc || !cityLoc.trim()) return;
+    const timer = setTimeout(async () => {
+      try {
+        const coords = await LocationService.getCoordinatesForCity(cityLoc);
+        if (coords) {
+          setAstroCoords(coords);
+        }
+      } catch (err) {
+        console.warn('Could not geocode city in signup:', err);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [cityLoc]);
 
   // OTP States
   const [isEmailVerified, setIsEmailVerified] = useState(false);
@@ -545,6 +579,7 @@ export default function Signup() {
   const [otpCode, setOtpCode] = useState('');
   const [resendTimer, setResendTimer] = useState(0);
   const [countryCode, setCountryCode] = useState('+91');
+  const lastSubmittedOtpRef = useRef('');
 
   const navigate = useNavigate();
 
@@ -563,6 +598,8 @@ export default function Signup() {
     }
     setIsSendingOtp(true);
     setError('');
+    lastSubmittedOtpRef.current = '';
+    setOtpCode('');
     try {
       await api.post('/auth/send-email-otp', { email: email.trim() });
       setIsOtpSent(true);
@@ -574,22 +611,52 @@ export default function Signup() {
     }
   };
 
-  const verifyOtp = async () => {
-    if (!otpCode.trim()) {
-      setError('Please enter the OTP code.');
+  const verifyOtp = async (codeToVerify) => {
+    const code = (typeof codeToVerify === 'string' ? codeToVerify : otpCode).trim();
+    if (!code || code.length !== 6) {
+      setError('Please enter the 6-digit OTP code.');
       return;
     }
+    if (isVerifyingOtp) return;
+
     setIsVerifyingOtp(true);
     setError('');
+    lastSubmittedOtpRef.current = code;
     try {
-      await api.post('/auth/verify-email-otp', { email: email.trim(), otp: otpCode.trim() });
+      await api.post('/auth/verify-email-otp', { email: email.trim(), otp: code });
       setIsEmailVerified(true);
       setIsOtpSent(false);
       setOtpCode('');
+      lastSubmittedOtpRef.current = '';
     } catch (err) {
+      lastSubmittedOtpRef.current = ''; // Allow retry if user edits/retypes
       setError(err.response?.data?.message || 'Invalid OTP. Please try again.');
     } finally {
       setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleOtpChange = (e) => {
+    const cleanVal = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setOtpCode(cleanVal);
+    setError('');
+    if (cleanVal.length < 6) {
+      lastSubmittedOtpRef.current = '';
+    }
+    if (cleanVal.length === 6 && !isVerifyingOtp && cleanVal !== lastSubmittedOtpRef.current) {
+      verifyOtp(cleanVal);
+    }
+  };
+
+  const handleOtpPaste = (e) => {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length === 6) {
+      e.preventDefault();
+      setOtpCode(pasted);
+      setError('');
+      if (!isVerifyingOtp && pasted !== lastSubmittedOtpRef.current) {
+        verifyOtp(pasted);
+      }
     }
   };
 
@@ -618,7 +685,12 @@ export default function Signup() {
             }
             if (data.profile) {
               setProfileFor(data.profile.profileFor || '');
-              setFullName(data.profile.name || '');
+              const profileName = data.profile.name || '';
+              setFullName(profileName);
+              const pFirst = data.profile.firstName || (profileName ? profileName.trim().split(/\s+/)[0] : '');
+              const pLast = data.profile.lastName || (profileName ? profileName.trim().split(/\s+/).slice(1).join(' ') : '');
+              setFirstName(pFirst);
+              setLastName(pLast);
               if (data.profile.dob) {
                 const dateObj = new Date(data.profile.dob);
                 if (!isNaN(dateObj.getTime())) {
@@ -635,7 +707,14 @@ export default function Signup() {
               setStateLoc(data.profile.state || '');
               setCityLoc(data.profile.city || '');
               setSubCommunity(data.profile.subCommunity || '');
+              setTimeOfBirth(data.profile.astrology?.timeOfBirth || '');
+              if (data.profile.astrology?.latitude && data.profile.astrology?.longitude) {
+                setAstroCoords({ latitude: data.profile.astrology.latitude, longitude: data.profile.astrology.longitude });
+              }
               setMaritalStatus(data.profile.maritalStatus || '');
+              setHasChildren(data.profile.hasChildren || 'No');
+              setChildrenCount(data.profile.noOfChildren || data.profile.childrenCount || 0);
+              setChildrenStayingWith(data.profile.childrenStayingWith || '');
               setHeight(data.profile.height || '');
               setDiet(data.profile.diet || '');
               setQualification(data.profile.education || '');
@@ -667,6 +746,7 @@ export default function Signup() {
               setPrefCastes(data.preferences.caste || []);
               setPrefCommunities(data.preferences.languages || []);
               setPrefMaritalStatuses(data.preferences.maritalStatus || []);
+              setPrefChildren(normalizeChildrenFromBackend(data.preferences.children));
               setPrefHeightMin(data.preferences.height?.[0] || '5\'0" (152 cm)');
               setPrefHeightMax(data.preferences.height?.[1] || '6\'0" (182 cm)');
               setPrefDiets(data.preferences.diet || []);
@@ -810,6 +890,8 @@ export default function Signup() {
       if (!company.trim()) return setError('Please enter company name.');
     }
     if (step === 9) {
+      if (!firstName.trim()) return setError('Please enter first name.');
+      if (!lastName.trim()) return setError('Please enter last name / surname.');
       if (!fullName.trim()) return setError('Please enter full name.');
       if (!dob) return setError('Please select date of birth.');
       if (!gender) return setError('Please select a gender.');
@@ -867,9 +949,9 @@ export default function Signup() {
         }
       }
 
-      const nameParts = fullName.trim().split(/\s+/);
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
+      const resolvedFirstName = firstName.trim() || (fullName.trim().split(/\s+/)[0] || '');
+      const resolvedLastName = lastName.trim() || (fullName.trim().split(/\s+/).slice(1).join(' ') || '');
+      const resolvedFullName = fullName.trim() || `${resolvedFirstName} ${resolvedLastName}`.trim();
 
       let premiumPayload = undefined;
       if (selectedPremiumPlan) {
@@ -890,9 +972,9 @@ export default function Signup() {
         idProofDoc: idProofDoc || undefined,
         selfieDoc: selfieDoc || undefined,
         profile: {
-          name: fullName.trim(),
-          firstName,
-          lastName,
+          name: resolvedFullName,
+          firstName: resolvedFirstName,
+          lastName: resolvedLastName,
           dob: dobISO || undefined,
           gender,
           religion,
@@ -905,6 +987,10 @@ export default function Signup() {
           profileFor,
           subCommunity,
           maritalStatus,
+          hasChildren: maritalStatus === 'Never Married' ? 'No' : hasChildren,
+          childrenCount: maritalStatus === 'Never Married' ? 0 : Number(childrenCount) || (hasChildren === 'Yes' ? 1 : 0),
+          noOfChildren: maritalStatus === 'Never Married' ? 0 : Number(childrenCount) || (hasChildren === 'Yes' ? 1 : 0),
+          childrenStayingWith: (maritalStatus !== 'Never Married' && hasChildren === 'Yes') ? childrenStayingWith : '',
           height,
           diet,
           education: qualification,
@@ -923,6 +1009,11 @@ export default function Signup() {
           liveWithFamily: liveWithFamily === true ? true : liveWithFamily === false ? false : undefined,
           familyLocation: liveWithFamily === false ? familyLocation : undefined,
           familyFinancialStatus,
+          astrology: {
+            timeOfBirth: timeOfBirth || undefined,
+            cityOfBirth: cityLoc || city || undefined,
+            ...(astroCoords?.latitude ? { latitude: astroCoords.latitude, longitude: astroCoords.longitude } : {})
+          },
           signupStep: step < 15 ? nextStep : 15,
           is_onboarding_complete: step === 15
         },
@@ -938,6 +1029,7 @@ export default function Signup() {
           income: prefIncomes,
           location: [],
           maritalStatus: prefMaritalStatuses,
+          children: normalizeChildrenForBackend(prefChildren),
           diet: prefDiets
         },
         ...(premiumPayload && { premiumMembership: premiumPayload })
@@ -1002,7 +1094,12 @@ export default function Signup() {
           }
           if (data.profile) {
             setProfileFor(data.profile.profileFor || '');
-            setFullName(data.profile.name || '');
+            const profileName = data.profile.name || '';
+            setFullName(profileName);
+            const pFirst = data.profile.firstName || (profileName ? profileName.trim().split(/\s+/)[0] : '');
+            const pLast = data.profile.lastName || (profileName ? profileName.trim().split(/\s+/).slice(1).join(' ') : '');
+            setFirstName(pFirst);
+            setLastName(pLast);
             if (data.profile.dob) {
               const dateObj = new Date(data.profile.dob);
               if (!isNaN(dateObj.getTime())) {
@@ -1019,7 +1116,14 @@ export default function Signup() {
             setStateLoc(data.profile.state || '');
             setCityLoc(data.profile.city || '');
             setSubCommunity(data.profile.subCommunity || '');
+            setTimeOfBirth(data.profile.astrology?.timeOfBirth || '');
+            if (data.profile.astrology?.latitude && data.profile.astrology?.longitude) {
+              setAstroCoords({ latitude: data.profile.astrology.latitude, longitude: data.profile.astrology.longitude });
+            }
             setMaritalStatus(data.profile.maritalStatus || '');
+            setHasChildren(data.profile.hasChildren || 'No');
+            setChildrenCount(data.profile.noOfChildren || data.profile.childrenCount || 0);
+            setChildrenStayingWith(data.profile.childrenStayingWith || '');
             setHeight(data.profile.height || '');
             setDiet(data.profile.diet || '');
             setQualification(data.profile.education || '');
@@ -1051,6 +1155,7 @@ export default function Signup() {
             setPrefReligions(data.preferences.religion || []);
             setPrefCastes(data.preferences.caste || []);
             setPrefMaritalStatuses(data.preferences.maritalStatus || []);
+            setPrefChildren(normalizeChildrenFromBackend(data.preferences.children));
             setPrefHeightMin(data.preferences.height?.[0] || '5\'0" (152 cm)');
             setPrefHeightMax(data.preferences.height?.[1] || '6\'0" (182 cm)');
             setPrefDiets(data.preferences.diet || []);
@@ -1677,10 +1782,7 @@ export default function Signup() {
                         className="w-full pl-12 pr-10 py-3.5 border border-gray-200 rounded-2xl appearance-none bg-white/70 focus:outline-none focus:ring-2 focus:ring-[#5D34F7] text-[15px] text-gray-700 hover:border-[#5D34F7]/30 transition-all shadow-sm"
                       >
                         <option value="" disabled>Sub-community / Sect</option>
-                        {((casteSubCommunitiesMap[caste] || []).length > 0
-                          ? casteSubCommunitiesMap[caste]
-                          : ['Other']
-                        ).map(sub => (
+                        {getSubCommunityOptions(religion, caste, serverSubCommunities, subCommunity).map(sub => (
                           <option key={sub} value={sub}>{sub}</option>
                         ))}
                       </select>
@@ -1752,34 +1854,65 @@ export default function Signup() {
                       {/* OTP Verification Input Box */}
                       {isOtpSent && !isEmailVerified && (
                         <div className="animate-in fade-in slide-in-from-top-4 duration-300 space-y-3 p-4 bg-slate-50 border border-slate-100 rounded-2xl">
-                          <label className="text-xs font-bold text-slate-700 block">Verification Code</label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-slate-700 block">Verification Code</label>
+                            {isVerifyingOtp && (
+                              <span className="text-[11px] font-bold text-[#5D34F7] flex items-center gap-1.5 animate-pulse">
+                                <span className="w-3 h-3 border-2 border-[#5D34F7] border-t-transparent rounded-full animate-spin"></span>
+                                <span>Verifying code...</span>
+                              </span>
+                            )}
+                          </div>
                           <div className="flex gap-2">
                             <input
                               type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              autoComplete="one-time-code"
                               maxLength={6}
                               placeholder="Enter 6-digit OTP"
                               value={otpCode}
-                              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                              className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] text-sm bg-white"
+                              disabled={isVerifyingOtp}
+                              onChange={handleOtpChange}
+                              onPaste={handleOtpPaste}
+                              className={`flex-1 px-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] text-sm bg-white tracking-widest font-mono font-bold transition-all ${
+                                isVerifyingOtp ? 'border-[#5D34F7] bg-purple-50/20' : 'border-gray-200'
+                              }`}
                             />
                             <button
                               type="button"
-                              onClick={verifyOtp}
+                              onClick={() => verifyOtp(otpCode)}
                               disabled={isVerifyingOtp || otpCode.length !== 6}
-                              className="px-5 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white font-bold text-xs rounded-xl shadow-sm hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                              className={`px-5 py-2.5 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer ${
+                                isVerifyingOtp
+                                  ? 'bg-[#5D34F7] text-white opacity-80 cursor-wait'
+                                  : otpCode.length === 6
+                                  ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 text-white hover:opacity-95'
+                                  : 'bg-slate-200 text-slate-400 opacity-60 cursor-not-allowed'
+                              }`}
                             >
-                              {isVerifyingOtp ? 'Verifying...' : 'Verify'}
+                              {isVerifyingOtp ? (
+                                <>
+                                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                  <span>Verifying...</span>
+                                </>
+                              ) : (
+                                <span>Verify</span>
+                              )}
                             </button>
                           </div>
                           <div className="flex justify-between items-center text-xs text-slate-500 px-1">
-                            <span>Code sent to your email.</span>
+                            <span className="text-[11px]">
+                              {isVerifyingOtp ? 'Verifying automatically...' : 'Auto-submits once 6 digits are entered'}
+                            </span>
                             {resendTimer > 0 ? (
-                              <span>Resend in {resendTimer}s</span>
+                              <span className="font-semibold text-slate-400">Resend in {resendTimer}s</span>
                             ) : (
                               <button
                                 type="button"
                                 onClick={sendOtp}
-                                className="font-bold text-[#5D34F7] hover:underline cursor-pointer"
+                                disabled={isSendingOtp}
+                                className="font-bold text-[#5D34F7] hover:underline cursor-pointer disabled:opacity-50"
                               >
                                 Resend OTP
                               </button>
@@ -1838,44 +1971,68 @@ export default function Signup() {
                 </div>
               )}
 
-              {/* STEP 4 - Add profile photos */}
+              {/* STEP 4 - Add profile photos (Up to 10 photos) */}
               {step === 4 && (
-                <div className="smooth-step-transition max-w-md mx-auto space-y-6">
+                <div className="smooth-step-transition max-w-md mx-auto space-y-5">
                   {renderStepIcon(<Icons.Camera />)}
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Add profile photos</h2>
-                  <p className="text-gray-500 mb-6 text-[15px]">
-                    Profiles with clear photos receive up to 5x more interest. Add at least one photo.
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900 mb-1">Add profile photos</h2>
+                      <p className="text-gray-500 text-xs sm:text-[13px]">
+                        Profiles with clear photos receive up to 5x more interest.
+                      </p>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-black shrink-0 ${
+                      photos.length >= 10
+                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                        : 'bg-[#5D34F7]/10 text-[#5D34F7] border border-[#5D34F7]/20'
+                    }`}>
+                      {photos.length}/10 uploaded
+                    </span>
+                  </div>
+
+                  {photos.length >= 10 && (
+                    <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-amber-800 text-xs font-semibold flex items-center gap-2">
+                      <LucideIcons.AlertCircle size={15} className="shrink-0 text-amber-600" />
+                      <span>You can upload a maximum of 10 pictures per account.</span>
+                    </div>
+                  )}
 
                   <div className="space-y-4">
                     {/* Primary Photo Slot (Index 0) */}
                     <div className="relative">
                       {photos[0] ? (
-                        <div className="relative w-full h-64 rounded-3xl overflow-hidden border border-gray-200 shadow-sm group">
+                        <div className="relative w-full h-64 rounded-3xl overflow-hidden border-2 border-amber-400 ring-2 ring-amber-400/20 shadow-sm group">
                           <img src={getPhotoUrl(photos[0])} alt="Primary Profile" className="w-full h-full object-cover" />
                           <button
                             type="button"
                             onClick={() => setPhotos(photos.filter((_, idx) => idx !== 0))}
                             className="absolute top-3 right-3 p-2 bg-red-600/90 text-white rounded-full hover:bg-red-700 transition-colors shadow-md cursor-pointer"
+                            title="Remove picture"
                           >
                             <Trash2 size={16} />
                           </button>
-                          <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-sm text-white px-3 py-1 rounded-full text-xs font-semibold">
-                            Primary Photo
+                          <div className="absolute top-3 left-3 bg-amber-500 text-white px-3 py-1 rounded-full text-xs font-extrabold flex items-center gap-1 shadow-md pointer-events-none">
+                            ⭐ Primary Photo
                           </div>
                         </div>
                       ) : (
-                        <label className="w-full h-64 flex flex-col items-center justify-center bg-gray-50 rounded-3xl border border-gray-200 cursor-pointer hover:bg-gray-100/50 transition-all text-center group">
+                        <label className="w-full h-64 flex flex-col items-center justify-center bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200 cursor-pointer hover:bg-gray-100/50 hover:border-[#5D34F7] transition-all text-center group">
                           <div className="w-14 h-14 bg-[#5D34F7]/10 rounded-full flex items-center justify-center text-[#5D34F7] mb-2 transition-transform group-hover:scale-110">
                             <Plus size={28} className="stroke-[3]" />
                           </div>
                           <span className="text-[#5D34F7] font-bold text-sm">Add Primary Photo</span>
+                          <span className="text-gray-400 text-xs mt-1">This will be your main profile picture</span>
                           <input
                             type="file"
                             accept="image/*"
                             onChange={async (e) => {
                               const file = e.target.files[0];
                               if (file) {
+                                if (file.size > 10 * 1024 * 1024) {
+                                  setError('Picture must be less than 10MB.');
+                                  return;
+                                }
                                 setIsSaving(true);
                                 setError('');
                                 try {
@@ -1898,52 +2055,115 @@ export default function Signup() {
                       )}
                     </div>
 
-                    {/* Secondary Photo Slots (Indices 1, 2, 3) */}
-                    <div className="grid grid-cols-3 gap-4">
-                      {[1, 2, 3].map((slotIdx) => (
-                        <div key={slotIdx} className="relative aspect-square">
-                          {photos[slotIdx] ? (
-                            <div className="relative w-full h-full rounded-2xl overflow-hidden border border-gray-200 shadow-sm group">
-                              <img src={getPhotoUrl(photos[slotIdx])} alt={`Profile ${slotIdx + 1}`} className="w-full h-full object-cover" />
-                              <button
-                                type="button"
-                                onClick={() => setPhotos(photos.filter((_, idx) => idx !== slotIdx))}
-                                className="absolute top-1 right-1 p-1 bg-red-600/90 text-white rounded-full hover:bg-red-700 transition-colors shadow-md cursor-pointer"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
-                          ) : (
-                            <label className="w-full h-full flex items-center justify-center bg-gray-50 rounded-2xl border border-gray-200 cursor-pointer hover:bg-gray-100/50 transition-all group">
-                              <Plus size={24} className="text-[#5D34F7] stroke-[3] transition-transform group-hover:scale-110" />
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={async (e) => {
-                                  const file = e.target.files[0];
-                                  if (file) {
-                                    setIsSaving(true);
-                                    setError('');
-                                    try {
-                                      const uploadedNames = await uploadFiles([file]);
-                                      setPhotos(prev => {
-                                        const newPhotos = [...prev];
-                                        newPhotos[slotIdx] = uploadedNames[0];
-                                        return newPhotos.filter(Boolean);
-                                      });
-                                    } catch (err) {
-                                      setError(err.response?.data?.message || err.message || 'Failed to upload photo.');
-                                    } finally {
-                                      setIsSaving(false);
+                    {/* Secondary Photo Slots (Slots 1 to 9, up to 10 photos total) */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-gray-700">Additional Photos (up to 9 more)</span>
+                        {photos.length < 10 && (
+                          <label className="text-xs font-bold text-[#5D34F7] hover:underline cursor-pointer flex items-center gap-1">
+                            <Plus size={12} /> Upload Multiple
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files || []);
+                                if (files.length === 0) return;
+                                const available = 10 - photos.length;
+                                if (available <= 0) {
+                                  setError('You can upload a maximum of 10 pictures per account.');
+                                  return;
+                                }
+                                const toUpload = files.slice(0, available);
+                                if (files.length > available) {
+                                  setError('You can upload a maximum of 10 pictures per account. Only the allowed pictures were added.');
+                                } else {
+                                  setError('');
+                                }
+                                setIsSaving(true);
+                                try {
+                                  const uploadedNames = await uploadFiles(toUpload);
+                                  setPhotos(prev => [...prev, ...uploadedNames].slice(0, 10));
+                                } catch (err) {
+                                  setError(err.response?.data?.message || err.message || 'Failed to upload photos.');
+                                } finally {
+                                  setIsSaving(false);
+                                }
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((slotIdx) => (
+                          <div key={slotIdx} className="relative aspect-square">
+                            {photos[slotIdx] ? (
+                              <div className="relative w-full h-full rounded-2xl overflow-hidden border border-gray-200 shadow-sm group">
+                                <img src={getPhotoUrl(photos[slotIdx])} alt={`Profile ${slotIdx + 1}`} className="w-full h-full object-cover" />
+                                <div className="absolute top-1 inset-x-1 flex items-center justify-between z-10">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const target = photos[slotIdx];
+                                      setPhotos([target, ...photos.filter((_, idx) => idx !== slotIdx)]);
+                                    }}
+                                    className="p-1 bg-black/75 hover:bg-[#5D34F7] text-white rounded-md transition-colors shadow-sm cursor-pointer"
+                                    title="Make Primary"
+                                  >
+                                    <LucideIcons.Star size={11} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPhotos(photos.filter((_, idx) => idx !== slotIdx))}
+                                    className="p-1 bg-red-600/90 text-white rounded-md hover:bg-red-700 transition-colors shadow-sm cursor-pointer"
+                                    title="Remove picture"
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <label className="w-full h-full flex flex-col items-center justify-center bg-gray-50 rounded-2xl border border-dashed border-gray-200 cursor-pointer hover:bg-gray-100/50 hover:border-[#5D34F7] transition-all group">
+                                <Plus size={20} className="text-[#5D34F7] stroke-[2.5] transition-transform group-hover:scale-110 mb-0.5" />
+                                <span className="text-[10px] text-gray-400 font-semibold">Slot {slotIdx + 1}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={async (e) => {
+                                    const file = e.target.files[0];
+                                    if (file) {
+                                      if (photos.length >= 10 && !photos[slotIdx]) {
+                                        setError('You can upload a maximum of 10 pictures per account.');
+                                        return;
+                                      }
+                                      if (file.size > 10 * 1024 * 1024) {
+                                        setError('Picture must be less than 10MB.');
+                                        return;
+                                      }
+                                      setIsSaving(true);
+                                      setError('');
+                                      try {
+                                        const uploadedNames = await uploadFiles([file]);
+                                        setPhotos(prev => {
+                                          const newPhotos = [...prev];
+                                          newPhotos[slotIdx] = uploadedNames[0];
+                                          return newPhotos.filter(Boolean).slice(0, 10);
+                                        });
+                                      } catch (err) {
+                                        setError(err.response?.data?.message || err.message || 'Failed to upload photo.');
+                                      } finally {
+                                        setIsSaving(false);
+                                      }
                                     }
-                                  }
-                                }}
-                                className="hidden"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      ))}
+                                  }}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2018,7 +2238,7 @@ export default function Signup() {
                         <input
                           type="text"
                           value={stateLoc}
-                          onChange={e => setStateLoc(e.target.value)}
+                          onChange={e => setStateLoc(e.target.value.replace(/[0-9]/g, ''))}
                           className="w-full px-4 py-3 border border-gray-200 rounded-2xl bg-white/70 focus:outline-none focus:ring-2 focus:ring-[#5D34F7] text-[15px] text-gray-700"
                           placeholder="State"
                         />
@@ -2028,11 +2248,27 @@ export default function Signup() {
                         <input
                           type="text"
                           value={cityLoc}
-                          onChange={e => setCityLoc(e.target.value)}
+                          onChange={e => setCityLoc(e.target.value.replace(/[0-9]/g, ''))}
                           className="w-full px-4 py-3 border border-gray-200 rounded-2xl bg-white/70 focus:outline-none focus:ring-2 focus:ring-[#5D34F7] text-[15px] text-gray-700"
                           placeholder="City"
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Time of Birth</label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#5D34F7]">
+                          <Clock size={18} />
+                        </div>
+                        <input
+                          type="time"
+                          value={timeOfBirth}
+                          onChange={e => setTimeOfBirth(e.target.value)}
+                          className="w-full pl-12 pr-4 py-3.5 border border-gray-200 rounded-2xl bg-white/70 focus:outline-none focus:ring-2 focus:ring-[#5D34F7] text-[15px] text-gray-700 hover:border-[#5D34F7]/30 transition-all shadow-sm"
+                        />
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-1">Required for Kundali matching and astrology calculations.</p>
                     </div>
                   </div>
                 </div>
@@ -2054,7 +2290,14 @@ export default function Signup() {
                       </div>
                       <select
                         value={maritalStatus}
-                        onChange={(e) => setMaritalStatus(e.target.value)}
+                        onChange={(e) => {
+                          setMaritalStatus(e.target.value);
+                          if (e.target.value === 'Never Married') {
+                            setHasChildren('No');
+                            setChildrenCount(0);
+                            setChildrenStayingWith('');
+                          }
+                        }}
                         className="w-full pl-12 pr-10 py-3.5 border border-gray-200 rounded-2xl appearance-none bg-white/70 focus:outline-none focus:ring-2 focus:ring-[#5D34F7] text-[15px] text-gray-700 hover:border-[#5D34F7]/30 transition-all shadow-sm"
                       >
                         <option value="" disabled>Marital Status</option>
@@ -2105,6 +2348,74 @@ export default function Signup() {
                       </div>
                     </div>
                   </div>
+
+                  {maritalStatus && maritalStatus !== 'Never Married' && (
+                    <div className="mt-4 p-5 bg-purple-50/50 rounded-2xl border border-purple-100/70 space-y-4 animate-in fade-in duration-200">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                          Have Children / Kids?
+                        </label>
+                        <div className="flex gap-3">
+                          {['No', 'Yes'].map(opt => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => {
+                                setHasChildren(opt);
+                                if (opt === 'No') {
+                                  setChildrenCount(0);
+                                  setChildrenStayingWith('');
+                                } else if (childrenCount === 0) {
+                                  setChildrenCount(1);
+                                }
+                              }}
+                              className={`flex-1 py-3 px-4 rounded-xl border text-sm font-bold transition-all cursor-pointer ${
+                                hasChildren === opt
+                                  ? 'bg-[#5D34F7] text-white border-[#5D34F7] shadow-sm'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {hasChildren === 'Yes' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-purple-100">
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                              Number of Children
+                            </label>
+                            <select
+                              value={childrenCount || 1}
+                              onChange={(e) => setChildrenCount(Number(e.target.value))}
+                              className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#5D34F7]"
+                            >
+                              <option value={1}>1 Child</option>
+                              <option value={2}>2 Children</option>
+                              <option value={3}>3 or More Children</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                              Children Living With
+                            </label>
+                            <select
+                              value={childrenStayingWith}
+                              onChange={(e) => setChildrenStayingWith(e.target.value)}
+                              className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#5D34F7]"
+                            >
+                              <option value="">Select Living Arrangement</option>
+                              <option value="Me">Living with me</option>
+                              <option value="Separate">Living separately</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2146,7 +2457,7 @@ export default function Signup() {
                         list="colleges"
                         placeholder="College/University"
                         value={college}
-                        onChange={(e) => setCollege(e.target.value)}
+                        onChange={(e) => setCollege(e.target.value.replace(/[0-9]/g, ''))}
                         className="w-full pl-12 pr-4 py-3.5 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent text-[15px] bg-white/70 hover:border-[#5D34F7]/30 transition-all shadow-sm"
                       />
                       <datalist id="colleges">
@@ -2234,7 +2545,7 @@ export default function Signup() {
                         type="text"
                         placeholder="Company Name"
                         value={company}
-                        onChange={(e) => setCompany(e.target.value)}
+                        onChange={(e) => setCompany(e.target.value.replace(/[0-9]/g, ''))}
                         className="w-full pl-12 pr-4 py-3.5 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent text-[15px] bg-white/70 hover:border-[#5D34F7]/30 transition-all shadow-sm"
                       />
                     </div>
@@ -2260,25 +2571,46 @@ export default function Signup() {
                       </div>
                       <input
                         type="text"
-                        placeholder="Full Name"
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="First Name *"
+                        value={firstName}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[0-9]/g, '');
+                          setFirstName(val);
+                          setFullName(`${val} ${lastName}`.trim());
+                        }}
                         className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent text-sm bg-white/70 hover:border-[#5D34F7]/30 transition-all shadow-sm"
                       />
                     </div>
 
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#5D34F7]">
-                        <Icons.Calendar />
+                        <Icons.User />
                       </div>
                       <input
-                        type="date"
-                        placeholder="Date of Birth"
-                        value={dob}
-                        onChange={(e) => setDob(e.target.value)}
-                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent text-sm bg-white/70 hover:border-[#5D34F7]/30 transition-all shadow-sm text-gray-700"
+                        type="text"
+                        placeholder="Last Name / Surname *"
+                        value={lastName}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[0-9]/g, '');
+                          setLastName(val);
+                          setFullName(`${firstName} ${val}`.trim());
+                        }}
+                        className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent text-sm bg-white/70 hover:border-[#5D34F7]/30 transition-all shadow-sm"
                       />
                     </div>
+                  </div>
+
+                  <div className="mt-4 relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#5D34F7]">
+                      <Icons.Calendar />
+                    </div>
+                    <input
+                      type="date"
+                      placeholder="Date of Birth"
+                      value={dob}
+                      onChange={(e) => setDob(e.target.value)}
+                      className="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent text-sm bg-white/70 hover:border-[#5D34F7]/30 transition-all shadow-sm text-gray-700"
+                    />
                   </div>
 
                   <div className="mt-8 pt-8 border-t border-gray-100">
@@ -2838,6 +3170,47 @@ export default function Signup() {
                       </div>
                     </div>
 
+                    {/* Children Preferences */}
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-semibold text-gray-700">Preferred Children / Kids</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const isAllSelected = CHILDREN_FILTER_OPTIONS.every(c => prefChildren.includes(c));
+                            setPrefChildren(isAllSelected ? [] : [...CHILDREN_FILTER_OPTIONS]);
+                          }}
+                          className="text-xs text-[#5D34F7] font-semibold hover:underline bg-transparent border-0 cursor-pointer"
+                        >
+                          {CHILDREN_FILTER_OPTIONS.every(c => prefChildren.includes(c)) ? 'Deselect All' : 'Select All'}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {CHILDREN_FILTER_OPTIONS.map(c => {
+                          const isSel = prefChildren.some(p => p === c || (isZeroOrNoChildren(c) && isZeroOrNoChildren(p)));
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => {
+                                if (isSel) {
+                                  setPrefChildren(prefChildren.filter(x => !(x === c || (isZeroOrNoChildren(c) && isZeroOrNoChildren(x)))));
+                                } else {
+                                  setPrefChildren([...prefChildren.filter(x => !(isZeroOrNoChildren(c) && isZeroOrNoChildren(x))), c]);
+                                }
+                              }}
+                              className={`px-4 py-2 rounded-xl border text-[13px] font-medium transition-colors
+                                ${isSel
+                                  ? 'border-[#5D34F7] bg-[#5D34F7]/5 text-[#5D34F7] font-semibold'
+                                  : 'border-gray-200 text-gray-700 hover:border-gray-300'}`}
+                            >
+                              {c}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* Height Range */}
                     <div className="space-y-4">
                       <span className="text-sm font-semibold text-gray-700 block">Preferred Height Range</span>
@@ -3131,7 +3504,7 @@ export default function Signup() {
 
                       const planFeatures = [];
                       planFeatures.push(`Send Interests: ${plan.interestsLimit === 9999 ? 'Unlimited' : (plan.interestsLimit || 0)}`);
-                      planFeatures.push(`View Profiles: ${plan.viewProfilesPerDay === 9999 ? 'Unlimited' : (plan.viewProfilesPerDay || 0)}`);
+                      planFeatures.push(`Contacts: ${plan.viewProfilesPerDay === 9999 ? 'Unlimited' : (plan.viewProfilesPerDay || 0)}`);
                       if (plan.directMessaging) planFeatures.push('Direct Messaging Enabled');
                       if (plan.videoCalling) planFeatures.push('Video Calling Enabled');
                       if (plan.voiceCalling) planFeatures.push('Voice Calling Enabled');
@@ -3353,6 +3726,26 @@ export default function Signup() {
                 >
                   {isSaving ? 'Saving...' : step === 14 ? (selectedPremiumPlan ? 'Pay & Continue' : 'Continue') : step === 15 ? 'Finish' : 'Continue'}
                 </button>
+              </div>
+              <div className="mt-2.5 text-center text-[11px] text-gray-500 font-medium">
+                By continuing, you agree to our{' '}
+                <a
+                  href="/terms-conditions"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-bold text-[#5D34F7] hover:underline cursor-pointer"
+                >
+                  Terms & Conditions
+                </a>{' '}
+                and{' '}
+                <a
+                  href="/privacy-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-bold text-[#5D34F7] hover:underline cursor-pointer"
+                >
+                  Privacy Policy
+                </a>.
               </div>
             </div>
           </div>
