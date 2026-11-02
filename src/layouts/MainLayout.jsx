@@ -413,10 +413,14 @@ export default function MainLayout() {
             </button>
           </div>
 
-          {/* User Profile & Plan Card inside Hamburger Drawer */}
-          <div className="p-4 mx-4 my-3 rounded-2xl bg-gradient-to-br from-indigo-50/70 via-white to-purple-50/40 border border-indigo-100/80 shadow-xs">
+          {/* User Profile & Plan Card inside Hamburger Drawer - Clickable to open Profile */}
+          <div
+            onClick={() => { navigate('/profile'); setSidebarOpen(false); }}
+            className="p-4 mx-4 my-3 rounded-2xl bg-gradient-to-br from-indigo-50/70 via-white to-purple-50/40 border border-indigo-100/80 shadow-xs cursor-pointer hover:shadow-md transition group"
+            title="View My Profile"
+          >
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full overflow-hidden bg-[#5D34F7]/10 border-2 border-[#5D34F7]/25 shrink-0 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full overflow-hidden bg-[#5D34F7]/10 border-2 border-[#5D34F7]/25 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
                 {userPhoto ? (
                   <img src={userPhoto} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
@@ -424,9 +428,14 @@ export default function MainLayout() {
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-black text-slate-900 text-sm truncate leading-tight">
-                  {displayName}
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-black text-slate-900 group-hover:text-[#5D34F7] text-sm truncate leading-tight transition-colors">
+                    {displayName}
+                  </h3>
+                  <span className="text-[9px] font-bold text-[#5D34F7] bg-[#5D34F7]/10 px-1.5 py-0.2 rounded-full">
+                    Profile ›
+                  </span>
+                </div>
                 <p className="text-[11px] text-slate-500 font-semibold truncate mt-0.5">
                   ID: {displayId}
                 </p>
@@ -434,7 +443,7 @@ export default function MainLayout() {
             </div>
 
             {/* Current Plan Badge Pill */}
-            <div className="mt-3 pt-3 border-t border-indigo-100/60 flex items-center justify-between gap-2">
+            <div className="mt-3 pt-3 border-t border-indigo-100/60 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-1.5 min-w-0">
                 <FontAwesomeIcon icon={faCrown} className={`text-xs shrink-0 ${isPremium ? 'text-amber-500' : 'text-slate-400'}`} />
                 <span className="text-xs font-black text-slate-800 truncate" title={planName}>
@@ -466,6 +475,7 @@ export default function MainLayout() {
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Main Menu</span>
             </div>
             <SidebarLink to="/home" label="Home" onClick={() => setSidebarOpen(false)} />
+            <SidebarLink to="/profile" label="My Profile" sublabel="View & Edit Profile Details" onClick={() => setSidebarOpen(false)} />
 
             {/* Feed Tabs Section */}
             <div className="px-3 pt-3 pb-1 flex items-center justify-between">
@@ -542,7 +552,7 @@ export default function MainLayout() {
               onClick={() => setSidebarOpen(false)}
             />
 
-            {/* VIP Shaadi – Get Invited Dedicated Drawer Option */}
+            {/* VIP Familiess – Get Invited Dedicated Drawer Option */}
             <button
               type="button"
               onClick={() => {
@@ -557,7 +567,7 @@ export default function MainLayout() {
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-black text-xs text-slate-950 group-hover:text-amber-900">VIP Shaadi</span>
+                    <span className="font-black text-xs text-slate-950 group-hover:text-amber-900">VIP Familiess</span>
                     <span className="px-1.5 py-0.2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 text-[9px] font-black uppercase">
                       Get Invited
                     </span>
@@ -720,26 +730,26 @@ export default function MainLayout() {
 
           {/* Middle: Desktop Responsive Navigation Menu */}
           {showDesktopNav && (
-            <nav className="hidden lg:flex items-center gap-1 xl:gap-2 2xl:gap-4 text-xs xl:text-[13px] font-sans font-bold text-gray-600 whitespace-nowrap px-1">
+            <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1.5 2xl:gap-3 text-xs xl:text-[13px] font-sans font-bold text-gray-600 whitespace-nowrap px-1">
               <HeaderLink to="/home" label="Home" />
-              <HeaderLink to="/preference-matches" label="Send Interests" compactLabel="Send Interests" />
+              <HeaderLink to="/preference-matches" label="Send Interests" compactLabel="Matches" />
               <HeaderLink to="/search" label="Search" />
-              <HeaderLink to="/interests" label="Interests" className="hidden xl:flex" />
-              <HeaderLink to="/messages" label="Messages" />
-              <HeaderLink to="/contacts" label="Contacts" className="hidden xl:flex" />
-              <HeaderLink to="/astrochat" label="AstroChat" compactLabel="AstroChat" />
+              <HeaderLink to="/interests" label="Interests" className="hidden 2xl:flex" />
+              <HeaderLink to="/messages" label="Messages" badgeCount={notificationsData.messages?.length || 0} />
+              <HeaderLink to="/contacts" label="Contacts" className="hidden 2xl:flex" />
+              <HeaderLink to="/astrochat" label="AstroChat" compactLabel="AstroChat" isAstro={true} />
               <HeaderLink to="/notifications" label="Notifications" badgeCount={notificationsCount} />
-              <HeaderLink to="/matches" label="Mutual Matches" compactLabel="Matches" className="hidden xl:flex" />
+              <HeaderLink to="/matches" label="Mutual Matches" compactLabel="Matches" className="hidden 2xl:flex" />
 
-              {/* "More ▾" dropdown for compact desktop screens (1024px - 1279px) */}
-              <div className="relative xl:hidden" ref={moreMenuRef}>
+              {/* "More ▾" dropdown for screens below 2xl (1024px - 1535px) */}
+              <div className="relative 2xl:hidden" ref={moreMenuRef}>
                 <button
                   type="button"
                   onClick={() => setMoreMenuOpen(prev => !prev)}
-                  className={`flex items-center gap-1 py-1.5 px-1.5 border-b-2 transition-all duration-200 font-sans font-bold whitespace-nowrap text-xs tracking-tight group cursor-pointer ${
+                  className={`flex items-center gap-1 py-1.5 px-2 rounded-lg transition-all duration-200 font-sans font-bold whitespace-nowrap text-xs tracking-tight group cursor-pointer ${
                     isMoreActive
-                      ? 'border-[#5D34F7] text-[#5D34F7]'
-                      : 'border-transparent text-gray-600 hover:text-[#5D34F7] hover:border-slate-200'
+                      ? 'bg-[#5D34F7]/10 text-[#5D34F7]'
+                      : 'text-gray-600 hover:text-[#5D34F7] hover:bg-slate-50'
                   }`}
                   title="More Navigation Links"
                 >
@@ -754,7 +764,7 @@ export default function MainLayout() {
                 </button>
 
                 {moreMenuOpen && (
-                  <div className="absolute left-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="absolute left-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
                     <NavLink
                       to="/interests"
                       onClick={() => setMoreMenuOpen(false)}
@@ -811,54 +821,71 @@ export default function MainLayout() {
             </nav>
           )}
 
-          {/* Right: Plan Name Pill & Profile Avatar */}
-          <div className="flex items-center gap-2 sm:gap-2.5 relative shrink-0">
-            {/* VIP Shaadi – Get Invited Header Quick CTA Button */}
+          {/* Right: Actions, VIP Familiess & Profile Avatar */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 relative shrink-0">
+            {/* VIP Familiess – Get Invited Header Quick CTA Button */}
             <button
               type="button"
               onClick={() => setShowVipShaadiModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1 sm:py-1.5 rounded-full text-[11px] xl:text-xs font-sans font-black cursor-pointer transition shadow-xs border shrink-0 bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 border-amber-300 hover:scale-105 active:scale-95"
-              title="VIP Shaadi - Get Invited"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[11px] xl:text-xs font-sans font-black cursor-pointer transition shadow-xs border shrink-0 bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 border-amber-300 hover:scale-105 active:scale-95"
+              title="VIP Familiess - Get Invited"
             >
               <FontAwesomeIcon icon={faCrown} className="text-xs" />
-              <span className="whitespace-nowrap hidden sm:inline">VIP Shaadi</span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-950 text-amber-300 uppercase font-black">Invite</span>
+              <span className="whitespace-nowrap hidden sm:inline">VIP Familiess</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-950 text-amber-300 uppercase font-black">
+                <span className="hidden sm:inline">Invite</span>
+                <span className="sm:hidden">VIP</span>
+              </span>
             </button>
 
-            {/* VIP Consultant Dedicated Button in Top Header */}
+            {/* Mobile Notifications Bell (shown on mobile/tablet header) */}
+            <NavLink
+              to="/notifications"
+              className="relative lg:hidden w-8 h-8 rounded-full flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-[#5D34F7] transition border border-slate-100/80 shrink-0"
+              title="Notifications"
+            >
+              <FontAwesomeIcon icon={faBell} className="text-xs" />
+              {notificationsCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[8px] font-black rounded-full h-3.5 min-w-[0.875rem] px-0.5 flex items-center justify-center border border-white animate-pulse">
+                  {notificationsCount > 9 ? '9+' : notificationsCount}
+                </span>
+              )}
+            </NavLink>
+
+            {/* VIP Consultant Dedicated Button (Shown only on extra-wide screens 2xl to save horizontal space) */}
             <button
               type="button"
               onClick={() => setShowVipModal(true)}
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1 sm:py-1.5 rounded-full text-[11px] xl:text-xs font-sans font-black cursor-pointer transition shadow-xs border shrink-0 bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:scale-105 active:scale-95"
+              className="hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-sans font-black cursor-pointer transition shadow-xs border shrink-0 bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:scale-105 active:scale-95"
               title="Talk to our VIP Relationship Managers"
             >
               <span className="text-xs">👑</span>
-              <span className="whitespace-nowrap hidden sm:inline">VIP Consultant</span>
+              <span className="whitespace-nowrap">VIP Consultant</span>
             </button>
 
-            {/* Plan Name Pill in Top Header */}
+            {/* Plan Name Pill (Shown only on extra-wide screens 2xl to save horizontal space) */}
             <div
               onClick={() => navigate('/plans')}
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[11px] xl:text-xs font-sans font-black cursor-pointer transition shadow-2xs border shrink-0 ${isPremium
+              className={`hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-sans font-black cursor-pointer transition shadow-2xs border shrink-0 ${isPremium
                   ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
                   : 'bg-[#5D34F7]/10 hover:bg-[#5D34F7]/15 text-[#5D34F7] border-[#5D34F7]/20'
                 }`}
               title="Membership Plan"
             >
               <FontAwesomeIcon icon={faCrown} className={`text-xs ${isPremium ? 'text-amber-500' : 'text-[#5D34F7]'}`} />
-              <span className="whitespace-nowrap hidden xl:inline">{planName}</span>
-              <span className="whitespace-nowrap xl:hidden">{isPremium ? (rawPlanType?.split(' ')?.[0] || 'Premium') : 'Free'}</span>
+              <span className="whitespace-nowrap">{planName}</span>
             </div>
 
             {/* User Avatar & Account Dropdown */}
             <div className="relative shrink-0" ref={userMenuRef}>
               <button
+                id="user-avatar-menu-btn"
                 type="button"
                 onClick={() => setUserMenuOpen((prev) => !prev)}
                 className="flex items-center gap-1 sm:gap-1.5 cursor-pointer p-0.5 sm:p-1 hover:bg-slate-50 rounded-full transition shrink-0 border-0 bg-transparent"
                 title="Account Menu"
               >
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden bg-[#5D34F7]/10 border border-[#5D34F7]/20 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden bg-[#5D34F7]/10 border-2 border-[#5D34F7]/25 flex items-center justify-center shrink-0 shadow-2xs">
                   {p.photos && p.photos[0] ? (
                     <img
                       src={getPhotoUrl(p.photos[0], p.gender)}
@@ -877,14 +904,26 @@ export default function MainLayout() {
                 <FontAwesomeIcon icon={faChevronDown} className={`w-2.5 h-2.5 text-gray-500 transition-transform duration-200 ${userMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
-              {/* User Dropdown Menu (Without Profile option) */}
+              {/* User Dropdown Menu */}
               {userMenuOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
-                  {/* User info header */}
-                  <div className="px-4 py-3 border-b border-slate-100">
-                    <p className="text-xs font-black text-slate-900 truncate">{displayName}</p>
-                    <p className="text-[10px] text-slate-400 font-bold mt-0.5 truncate">ID: {displayId}</p>
-                    <div className="mt-2 flex items-center justify-between">
+                <div id="user-dropdown-menu" className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-100 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+                  {/* User info header - Clickable to open Profile */}
+                  <div
+                    id="user-dropdown-header-profile"
+                    onClick={() => { setUserMenuOpen(false); navigate('/profile'); }}
+                    className="px-4 py-3 border-b border-slate-100 hover:bg-slate-50/80 cursor-pointer transition group"
+                    title="View My Profile"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black text-slate-900 group-hover:text-[#5D34F7] transition-colors truncate">{displayName}</p>
+                        <p className="text-[10px] text-slate-400 font-bold mt-0.5 truncate">ID: {displayId}</p>
+                      </div>
+                      <span className="text-[10px] font-black text-[#5D34F7] bg-[#5D34F7]/10 px-2 py-0.5 rounded-full border border-[#5D34F7]/20 group-hover:bg-[#5D34F7] group-hover:text-white transition">
+                        Profile ›
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
                       <span className="text-[10px] font-black text-[#5D34F7] uppercase tracking-wider">{planName}</span>
                       <button
                         onClick={() => { setUserMenuOpen(false); navigate('/plans'); }}
@@ -897,13 +936,28 @@ export default function MainLayout() {
 
                   {/* Menu Options */}
                   <div className="py-1">
+                    {/* My Profile Dedicated Option */}
+                    <button
+                      id="user-dropdown-profile-btn"
+                      onClick={() => { setUserMenuOpen(false); navigate('/profile'); }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-[#5D34F7]/10 hover:text-[#5D34F7] flex items-center justify-between transition cursor-pointer border-0 bg-transparent group border-b border-slate-100/60"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-5 h-5 flex items-center justify-center [&>svg]:w-4 [&>svg]:h-4 group-hover:scale-110 transition-transform">
+                          {navIcons['/profile'] ? navIcons['/profile']() : <FontAwesomeIcon icon={faUser} className="text-[#5D34F7]" />}
+                        </div>
+                        <span className="font-extrabold text-slate-900 group-hover:text-[#5D34F7]">My Profile</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 group-hover:text-[#5D34F7]">View & Edit ›</span>
+                    </button>
+
                     <button
                       onClick={() => { setUserMenuOpen(false); setShowVipShaadiModal(true); }}
                       className="w-full text-left px-4 py-2.5 text-xs font-black text-amber-950 bg-gradient-to-r from-amber-100/90 to-yellow-50 hover:bg-amber-200/90 flex items-center justify-between transition cursor-pointer border-0"
                     >
                       <div className="flex items-center gap-2.5">
                         <FontAwesomeIcon icon={faCrown} className="text-amber-600 text-sm" />
-                        <span>VIP Shaadi – Get Invited</span>
+                        <span>VIP Familiess – Get Invited</span>
                       </div>
                       <span className="text-[9px] font-black uppercase bg-slate-950 text-amber-400 px-2 py-0.5 rounded-full">
                         Exclusive
@@ -981,10 +1035,52 @@ export default function MainLayout() {
         </div>
       </header>
 
-      {/* Main Outlet for Pages */}
-      <main className="flex-1">
+      {/* Main Outlet for Pages with Mobile Bottom Bar Clearance */}
+      <main className="flex-1 pb-20 lg:pb-0">
         <Outlet />
       </main>
+
+      {/* Mobile Bottom Navigation Bar - App-like, sleek, fixed dock */}
+      <nav
+        aria-label="Mobile Navigation"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-[0_-4px_25px_rgba(0,0,0,0.08)] px-1 pt-1.5 pb-[max(0.4rem,env(safe-area-inset-bottom))]"
+      >
+        <div className="grid grid-cols-5 items-center max-w-md mx-auto">
+          <MobileBottomTab
+            to="/home"
+            label="Home"
+            icon={navIcons['/home']}
+          />
+
+          <MobileBottomTab
+            to="/preference-matches"
+            label="Matches"
+            icon={navIcons['/preference-matches']}
+            matchPaths={['/preference-matches', '/feed']}
+          />
+
+          <MobileBottomTab
+            to="/search"
+            label="Search"
+            icon={navIcons['/search']}
+          />
+
+          <MobileBottomTab
+            to="/astrochat"
+            label="AstroChat"
+            icon={navIcons['/astrochat']}
+            badgeText="LIVE"
+            isAstro={true}
+          />
+
+          <MobileBottomTab
+            to="/messages"
+            label="Messages"
+            icon={navIcons['/messages']}
+            badgeCount={notificationsData.messages?.length || 0}
+          />
+        </div>
+      </nav>
 
       {/* Global VIP Consultant Modal */}
       <VipConsultantModal
@@ -1003,7 +1099,7 @@ export default function MainLayout() {
   );
 }
 
-function HeaderLink({ to, label, compactLabel, badgeCount, className = '' }) {
+function HeaderLink({ to, label, compactLabel, badgeCount, isAstro, className = '' }) {
   const Icon = navIcons[to];
   const displayClass = className || 'flex';
   const location = useLocation();
@@ -1013,7 +1109,7 @@ function HeaderLink({ to, label, compactLabel, badgeCount, className = '' }) {
     <NavLink
       to={to}
       className={() =>
-        `${displayClass} items-center gap-1 xl:gap-1.5 py-1.5 px-1 xl:px-1.5 border-b-2 transition-all duration-200 font-sans font-bold whitespace-nowrap text-xs xl:text-[13px] tracking-tight group relative shrink-0 ${isActive
+        `${displayClass} items-center gap-1 xl:gap-1.5 py-1.5 px-1.5 xl:px-2 border-b-2 transition-all duration-200 font-sans font-bold whitespace-nowrap text-xs xl:text-[13px] tracking-tight group relative shrink-0 ${isActive
           ? 'border-[#5D34F7] text-[#5D34F7]'
           : 'border-transparent text-gray-600 hover:text-[#5D34F7] hover:border-slate-200'
         }`
@@ -1023,8 +1119,8 @@ function HeaderLink({ to, label, compactLabel, badgeCount, className = '' }) {
       <div className="transition-transform duration-300 group-hover:scale-110 group-active:scale-90 relative shrink-0 [&>svg]:w-3.5 [&>svg]:h-3.5 xl:[&>svg]:w-4 xl:[&>svg]:h-4">
         {Icon ? <Icon /> : null}
         {badgeCount > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-black rounded-full h-3.5 w-3.5 flex items-center justify-center border border-white animate-pulse">
-            {badgeCount}
+          <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[8px] font-black rounded-full h-3.5 min-w-[0.875rem] px-0.5 flex items-center justify-center border border-white animate-pulse">
+            {badgeCount > 9 ? '9+' : badgeCount}
           </span>
         )}
       </div>
@@ -1038,6 +1134,59 @@ function HeaderLink({ to, label, compactLabel, badgeCount, className = '' }) {
           label
         )}
       </span>
+      {isAstro && (
+        <span className="text-[8px] font-black uppercase px-1.5 py-0.2 rounded-full bg-gradient-to-r from-amber-400 to-purple-600 text-white tracking-wider shadow-2xs ml-0.5">
+          Live
+        </span>
+      )}
+    </NavLink>
+  );
+}
+
+function MobileBottomTab({ to, label, icon: Icon, badgeCount, badgeText, isAstro, matchPaths }) {
+  const location = useLocation();
+  const isActive = matchPaths
+    ? matchPaths.includes(location.pathname)
+    : location.pathname === to;
+
+  return (
+    <NavLink
+      to={to}
+      className="flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all duration-200 group relative cursor-pointer"
+      title={label}
+    >
+      <div className={`relative transition-all duration-200 ${isActive ? 'scale-110 -translate-y-0.5' : 'group-hover:scale-105'}`}>
+        <div className="w-5 h-5 flex items-center justify-center [&>svg]:w-5 [&>svg]:h-5">
+          {Icon ? <Icon /> : null}
+        </div>
+
+        {/* Numeric Badge (e.g. Messages) */}
+        {badgeCount > 0 && (
+          <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[9px] font-black rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center border-2 border-white animate-pulse shadow-xs">
+            {badgeCount > 9 ? '9+' : badgeCount}
+          </span>
+        )}
+
+        {/* Text Badge (e.g. AstroChat LIVE) */}
+        {badgeText && (
+          <span className="absolute -top-1.5 -right-3 text-[7px] font-black uppercase tracking-wider px-1 py-0.2 rounded-full bg-gradient-to-r from-amber-500 to-purple-600 text-white border border-white shadow-2xs">
+            {badgeText}
+          </span>
+        )}
+      </div>
+
+      <span
+        className={`text-[10px] font-bold mt-1 tracking-tight transition-colors duration-200 truncate ${
+          isActive ? 'text-[#5D34F7] font-black' : 'text-slate-600 group-hover:text-slate-900'
+        }`}
+      >
+        {label}
+      </span>
+
+      {/* Active Indicator Dot */}
+      {isActive && (
+        <span className="w-1 h-1 rounded-full bg-[#5D34F7] mt-0.5 shadow-xs" />
+      )}
     </NavLink>
   );
 }

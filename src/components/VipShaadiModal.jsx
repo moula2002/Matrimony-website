@@ -68,7 +68,7 @@ export default function VipShaadiModal({ isOpen, onClose, currentUser, onEnquiry
     if (submitting) return;
 
     if (!registeredPhone) {
-      setErrorMsg('A registered mobile number on your account is required to submit a VIP Shaadi enquiry. Please add a phone number in your profile settings.');
+      setErrorMsg('A registered mobile number on your account is required to submit a VIP Familiess enquiry. Please add a phone number in your profile settings.');
       return;
     }
 
@@ -95,7 +95,7 @@ export default function VipShaadiModal({ isOpen, onClose, currentUser, onEnquiry
           onEnquirySubmitted(res.data);
         }
       } else {
-        setErrorMsg(res.data?.message || 'Failed to submit VIP Shaadi enquiry. Please try again.');
+        setErrorMsg(res.data?.message || 'Failed to submit VIP Familiess enquiry. Please try again.');
       }
     } catch (err) {
       console.error('Error submitting VIP enquiry:', err);
@@ -107,7 +107,7 @@ export default function VipShaadiModal({ isOpen, onClose, currentUser, onEnquiry
           status: err.response.data?.status || 'New',
           createdAt: err.response.data?.createdAt || new Date().toISOString()
         });
-        setErrorMsg('An active VIP Shaadi enquiry already exists for your account.');
+        setErrorMsg('An active VIP Familiess enquiry already exists for your account.');
       } else if (err.response?.data?.message) {
         setErrorMsg(err.response.data.message);
       } else {
@@ -182,7 +182,7 @@ export default function VipShaadiModal({ isOpen, onClose, currentUser, onEnquiry
                 <span>Bespoke Matchmaking</span>
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
-                <span>VIP Shaadi</span>
+                <span>VIP Familiess</span>
                 <span className="text-amber-400 text-sm font-semibold tracking-normal border border-amber-400/40 rounded-full px-2.5 py-0.5">
                   Get Invited
                 </span>
@@ -248,7 +248,7 @@ export default function VipShaadiModal({ isOpen, onClose, currentUser, onEnquiry
                     Enquiry Already Recorded
                   </span>
                   <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                    Your VIP Shaadi Request is Active
+                    Your VIP Familiess Request is Active
                   </h3>
                 </div>
                 <div>{getStatusBadge(existingEnquiry.status)}</div>
@@ -313,7 +313,7 @@ export default function VipShaadiModal({ isOpen, onClose, currentUser, onEnquiry
           {!loadingStatus && !hasActiveEnquiry && (
             <div className="space-y-5">
               
-              {/* VIP Shaadi Key Value Highlights */}
+              {/* VIP Familiess Key Value Highlights */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 space-y-1">
                   <div className="flex items-center gap-1.5 text-amber-800 font-black text-xs">
@@ -454,7 +454,7 @@ export default function VipShaadiModal({ isOpen, onClose, currentUser, onEnquiry
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-medium px-6 shrink-0">
           <div className="flex items-center gap-1.5">
             <FontAwesomeIcon icon={faShieldAlt} className="text-emerald-600" />
-            <span>VIP Shaadi Assisted Matchmaking</span>
+            <span>VIP Familiess Assisted Matchmaking</span>
           </div>
           <span>Helpline: {OFFICIAL_VIP_SUPPORT_PHONE}</span>
         </div>

@@ -601,9 +601,12 @@ export default function Signup() {
     lastSubmittedOtpRef.current = '';
     setOtpCode('');
     try {
-      await api.post('/auth/send-email-otp', { email: email.trim() });
+      const res = await api.post('/auth/send-email-otp', { email: email.trim() });
       setIsOtpSent(true);
       setResendTimer(30);
+      if (res.data?.otp) {
+        setOtpCode(res.data.otp);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to send OTP. Please try again.');
     } finally {

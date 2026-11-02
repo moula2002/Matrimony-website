@@ -1416,7 +1416,7 @@ export default function MembershipPlans() {
                 className="flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 font-black text-xs rounded-xl shadow-md shadow-amber-500/25 transition active:scale-95 cursor-pointer border border-amber-300"
               >
                 <span>👑</span>
-                <span>VIP Shaadi – Get Invited</span>
+                <span>VIP Familiess – Get Invited</span>
               </button>
 
               <button

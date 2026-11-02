@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import api, { getPhotoUrl, getDefaultAvatar, handleImageError } from '../api/axios';
 import { LocationService } from '../api/locationService';
 import { COUNTRY_PHONE_STANDARDS, validatePhoneNumber } from '../api/phoneStandards';
@@ -6,7 +6,8 @@ import {
   User, Mail, Phone, Calendar, Landmark, MapPin,
   GraduationCap, Briefcase, Heart, Edit2, Check, Copy, X, Camera, Plus, Trash2, LogOut, Users, Sliders,
   ChevronRight, ChevronDown, ChevronUp, ArrowLeft, ArrowRight, Search, Loader2, Home, BookOpen, Activity, Info, Share2, Download, Sparkles, BadgeCheck, FileText, Scale, ShieldCheck,
-  CheckCircle2, Clock, XCircle, ShieldAlert, AlertCircle, Lock, Star, Languages, Globe, Baby
+  CheckCircle2, Clock, XCircle, ShieldAlert, AlertCircle, Lock, Star, Languages, Globe, Baby,
+  MessageSquare
 } from 'lucide-react';
 import ShareModal from '../components/ShareModal';
 import CallModal from '../components/CallModal';
@@ -1015,7 +1016,7 @@ export default function Profile() {
         setActiveEditCategory(location.state.category);
       }
     }
-  }, [location.state]);
+  }, [id, location.pathname, location.state]);
 
   // Fetch communities & subcommunities from server dynamically
   useEffect(() => {
@@ -2698,9 +2699,9 @@ export default function Profile() {
                     type="button"
                     onClick={() => setShowVipShaadiModal(true)}
                     className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-amber-400 via-amber-300 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 rounded-xl text-sm font-extrabold shadow-sm transition duration-200 cursor-pointer active:scale-95 border border-amber-300"
-                    title="VIP Shaadi – Get Invited"
+                    title="VIP Familiess – Get Invited"
                   >
-                    <span>👑</span> VIP Shaadi – {vipEnquiryData?.hasActiveEnquiry ? 'Status' : 'Get Invited'}
+                    <span>👑</span> VIP Familiess – {vipEnquiryData?.hasActiveEnquiry ? 'Status' : 'Get Invited'}
                   </button>
                   <button
                     onClick={() => {
@@ -3106,10 +3107,10 @@ export default function Profile() {
                       <div className="space-y-1">
                         <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
                           <span>👑</span>
-                          <span>VIP Shaadi • By Invitation Only</span>
+                          <span>VIP Familiess • By Invitation Only</span>
                         </div>
                         <h3 className="text-lg sm:text-xl font-black text-white tracking-tight">
-                          VIP Shaadi – Get Invited
+                          VIP Familiess – Get Invited
                         </h3>
                         <p className="text-slate-300 text-xs font-medium leading-relaxed">
                           Personalized, discreet matchmaking managed by senior certified relationship managers.
