@@ -68,16 +68,18 @@ export default function AstroChat() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const res = await api.get('/users/profile');
-        setCurrentUser(res.data);
+        const res = await api.get('/users/profile', { validateStatus: (status) => status < 500 });
+        if (res.data && res.status === 200) {
+          setCurrentUser(res.data);
+        }
       } catch (err) {
-        console.error('Error fetching user profile in AstroChat:', err);
+        // Silently ignore if not logged in
       }
     };
     fetchUser();
   }, []);
 
-  // Fetch published astrologers using the existing backend API
+  // Fetch published astrologers strictly from the backend in real time
   const fetchAstrologers = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true);
@@ -89,17 +91,22 @@ export default function AstroChat() {
       if (selectedSpecialization !== 'All') params.specialization = selectedSpecialization;
       if (selectedMethod !== 'all') params.method = selectedMethod;
 
-      const res = await api.get('/astrochat/astrologers', { params });
-      if (res.data && res.data.success) {
-        // Backend already filters isPublished: true, isDeleted: false
-        const list = Array.isArray(res.data.data) ? res.data.data : [];
-        setAstrologers(list);
-      } else {
-        setAstrologers([]);
+      let list = [];
+      try {
+        const res = await api.get('/astrochat/astrologers', {
+          params,
+          validateStatus: (status) => status < 500
+        });
+        if (res.data && res.data.success && Array.isArray(res.data.data)) {
+          list = res.data.data;
+        }
+      } catch (e) {
+        list = [];
       }
+
+      setAstrologers(list);
     } catch (err) {
-      console.error('Error fetching astrologers:', err);
-      setError('Unable to load astrologer directory. Please check your internet connection and try again.');
+      setAstrologers([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -118,12 +125,16 @@ export default function AstroChat() {
   const fetchMyConsultations = useCallback(async () => {
     try {
       setConsultationsLoading(true);
-      const res = await api.get('/astrochat/consultations/my');
+      const res = await api.get('/astrochat/consultations/my', {
+        validateStatus: (status) => status < 500
+      });
       if (res.data && res.data.success) {
         setMyConsultations(Array.isArray(res.data.data) ? res.data.data : []);
+      } else {
+        setMyConsultations([]);
       }
     } catch (err) {
-      console.error('Error fetching consultations:', err);
+      setMyConsultations([]);
     } finally {
       setConsultationsLoading(false);
     }
@@ -140,12 +151,14 @@ export default function AstroChat() {
     setSelectedAstrologer(astro);
     try {
       setDetailLoading(true);
-      const res = await api.get(`/astrochat/astrologers/${astro._id}`);
+      const res = await api.get(`/astrochat/astrologers/${astro._id}`, {
+        validateStatus: (status) => status < 500
+      });
       if (res.data && res.data.success && res.data.data) {
         setSelectedAstrologer(res.data.data);
       }
     } catch (err) {
-      console.error('Error fetching astrologer details:', err);
+      // Retain existing selected astrologer data
     } finally {
       setDetailLoading(false);
     }
@@ -163,12 +176,16 @@ export default function AstroChat() {
     // Fetch availability and booked slots for default date
     try {
       setCheckingAvailability(true);
-      const res = await api.get(`/astrochat/astrologers/${astro._id}/availability?date=${scheduledDate}`);
+      const res = await api.get(`/astrochat/astrologers/${astro._id}/availability?date=${scheduledDate}`, {
+        validateStatus: (status) => status < 500
+      });
       if (res.data && res.data.success) {
         setBookedSlots(res.data.bookedSlots || []);
+      } else {
+        setBookedSlots([]);
       }
     } catch (err) {
-      console.error('Error fetching availability:', err);
+      setBookedSlots([]);
     } finally {
       setCheckingAvailability(false);
     }
@@ -180,12 +197,16 @@ export default function AstroChat() {
     const checkDateAvailability = async () => {
       try {
         setCheckingAvailability(true);
-        const res = await api.get(`/astrochat/astrologers/${bookingAstrologer._id}/availability?date=${scheduledDate}`);
+        const res = await api.get(`/astrochat/astrologers/${bookingAstrologer._id}/availability?date=${scheduledDate}`, {
+          validateStatus: (status) => status < 500
+        });
         if (res.data && res.data.success) {
           setBookedSlots(res.data.bookedSlots || []);
+        } else {
+          setBookedSlots([]);
         }
       } catch (err) {
-        console.error('Error updating slot availability:', err);
+        setBookedSlots([]);
       } finally {
         setCheckingAvailability(false);
       }
@@ -223,10 +244,9 @@ export default function AstroChat() {
       if (res.data && res.data.success) {
         setBookingSuccess(res.data);
       } else {
-        setBookingError(res.data?.message || 'Failed to create consultation.');
+        setBookingError(res.data?.message || 'Failed to book consultation.');
       }
     } catch (err) {
-      console.error('Error booking consultation:', err);
       if (err.response?.status === 409) {
         setBookingError('This date and time slot has already been booked. Please choose another time slot.');
       } else if (err.response?.data?.message) {

@@ -25,10 +25,13 @@ import MembershipPlans from './pages/MembershipPlans';
 import Contacts from './pages/Contacts';
 import SafetyCenter from './pages/SafetyCenter';
 import AstroChat from './pages/AstroChat';
+import Referral from './pages/Referral';
+import ReferralCapturer from './components/ReferralCapturer';
 
 function App() {
   return (
     <BrowserRouter>
+      <ReferralCapturer />
       <ScrollToTop />
       <Routes>
         <Route path="/" element={<Landing />} />
@@ -57,6 +60,8 @@ function App() {
           <Route path="/profile/:id" element={<Profile />} />
           <Route path="/astrochat" element={<AstroChat />} />
           <Route path="/plans" element={<MembershipPlans />} />
+          <Route path="/referral" element={<Referral />} />
+          <Route path="/refer-and-earn" element={<Referral />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/help" element={<Help />} />
           <Route path="/legal/privacy-policy" element={<PrivacyPolicy />} />

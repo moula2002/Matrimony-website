@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faHome, faUsers, faHeart, faComment, faSearch, faBell,
   faChevronDown, faUser, faExchangeAlt, faBars, faTimes, faCrown,
-  faSignOutAlt, faCog, faQuestionCircle, faShieldAlt, faAddressBook
+  faSignOutAlt, faCog, faQuestionCircle, faShieldAlt, faAddressBook, faGift
 } from '@fortawesome/free-solid-svg-icons';
 import api, { getPhotoUrl, getDefaultAvatar, handleImageError } from '../api/axios';
 import navbarLogo from '../assets/navbar_logo.png';
@@ -608,6 +608,7 @@ export default function MainLayout() {
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Account</span>
             </div>
             <SidebarLink to="/safety-center" label="Safety Center" onClick={() => setSidebarOpen(false)} />
+            <SidebarLink to="/referral" label="Refer & Earn 🎁" onClick={() => setSidebarOpen(false)} />
             <SidebarLink to="/settings" label="Settings" onClick={() => setSidebarOpen(false)} />
             <SidebarLink to="/help" label="Help & Support" onClick={() => setSidebarOpen(false)} />
           </nav>
@@ -1000,6 +1001,18 @@ export default function MainLayout() {
                     >
                       <FontAwesomeIcon icon={faShieldAlt} className="w-3.5 h-3.5 text-emerald-500" />
                       <span>Safety Center</span>
+                    </button>
+                    <button
+                      onClick={() => { setUserMenuOpen(false); navigate('/referral'); }}
+                      className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-[#5D34F7] flex items-center justify-between transition cursor-pointer border-0 bg-transparent"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <FontAwesomeIcon icon={faGift} className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Refer & Earn</span>
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-800">
+                        Reward
+                      </span>
                     </button>
                     <button
                       onClick={() => { setUserMenuOpen(false); navigate('/settings'); }}

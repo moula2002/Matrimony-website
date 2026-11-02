@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Shield, PhoneCall, Users, Award, Lock, Sparkles, ChevronDown, BadgeCheck, RotateCcw, BrainCircuit, ChevronRight, Plus, Minus, X, Mail, Star, Eye, EyeOff } from 'lucide-react';
+import { Heart, Shield, PhoneCall, Users, Award, Lock, Sparkles, ChevronDown, BadgeCheck, RotateCcw, BrainCircuit, ChevronRight, Plus, Minus, X, Mail, Star, Eye, EyeOff, Gift } from 'lucide-react';
 import api from '../api/axios';
 import { auth, googleProvider, signInWithPopup } from '../firebase';
 import heroBannerNew from '../assets/hero_banner_new.png';
@@ -33,6 +33,9 @@ export default function Landing() {
   const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [referralCode, setReferralCode] = useState(() => {
+    return sessionStorage.getItem('referral_code') || localStorage.getItem('referral_code') || '';
+  });
 
   const navigate = useNavigate();
 
@@ -67,13 +70,20 @@ export default function Landing() {
 
     try {
       const url = isLogin ? '/auth/login' : '/auth/register';
-      const response = await api.post(url, {
+      const payload = {
         email: authEmail.trim(),
         password: authPassword.trim(),
-      });
+        ...(!isLogin && referralCode.trim() ? { referralCode: referralCode.trim().toUpperCase() } : {})
+      };
+      const response = await api.post(url, payload);
 
       if (response.data.token) {
         localStorage.setItem('token', response.data.token);
+        sessionStorage.setItem('prefill_email', authEmail.trim());
+        localStorage.setItem('user_email', authEmail.trim());
+        if (response.data.user) {
+          localStorage.setItem('user', JSON.stringify(response.data.user));
+        }
         setShowAuthModal(false);
         if (isLogin) {
           navigate('/feed');
@@ -100,12 +110,20 @@ export default function Landing() {
       console.log("Token obtained:", idToken.substring(0, 10) + "...");
 
       const res = await api.post('/auth/google-login', {
-        idToken
+        idToken,
+        ...(referralCode.trim() ? { referralCode: referralCode.trim().toUpperCase() } : {})
       });
       console.log("Backend login response:", res.data);
 
       if (res.data.token) {
         localStorage.setItem('token', res.data.token);
+        if (result.user?.email) {
+          sessionStorage.setItem('prefill_email', result.user.email);
+          localStorage.setItem('user_email', result.user.email);
+        }
+        if (res.data.user) {
+          localStorage.setItem('user', JSON.stringify(res.data.user));
+        }
         setShowAuthModal(false);
         if (res.data.is_onboarding_complete) {
           navigate('/feed');
@@ -689,6 +707,27 @@ export default function Landing() {
                       >
                         Forgot Password?
                       </button>
+                    </div>
+                  )}
+
+                  {/* Referral Code (when Registering) */}
+                  {!isLogin && (
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-white/60">
+                        <Gift className="w-5 h-5 text-amber-300" />
+                      </div>
+                      <input
+                        type="text"
+                        value={referralCode}
+                        onChange={(e) => {
+                          const val = e.target.value.toUpperCase();
+                          setReferralCode(val);
+                          sessionStorage.setItem('referral_code', val);
+                          localStorage.setItem('referral_code', val);
+                        }}
+                        className="block w-full pl-12 pr-4 py-3.5 bg-transparent border border-white/30 rounded-xl focus:outline-none focus:border-amber-300 focus:ring-1 focus:ring-amber-300 text-sm text-white placeholder-white/50 transition uppercase tracking-wider font-mono font-bold"
+                        placeholder="Referral Code (Optional)"
+                      />
                     </div>
                   )}
 

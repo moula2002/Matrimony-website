@@ -131,8 +131,7 @@ export const getPhotoUrl = (photoPath, gender) => {
     const cleanPath = formattedPath.startsWith('/') ? formattedPath.substring(1) : formattedPath;
     formattedPath = `/media_uploads/${cleanPath}`;
   }
-  const baseURL = api.defaults.baseURL || 'https://server.familiess.com/api';
-  const origin = baseURL.replace(/\/api$/, '');
+  const origin = (import.meta.env.VITE_IMAGE_SERVER_URL || 'https://server.familiess.com').replace(/\/$/, '');
   return `${origin}${formattedPath.startsWith('/') ? '' : '/'}${formattedPath}`;
 };
 

@@ -405,7 +405,9 @@ export default function Signup() {
   const [caste, setCaste] = useState('');
   const [community, setCommunity] = useState('');
   const [city, setCity] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    return sessionStorage.getItem('prefill_email') || localStorage.getItem('user_email') || '';
+  });
   const [phone, setPhone] = useState('');
   const [stateLoc, setStateLoc] = useState('');
   const [cityLoc, setCityLoc] = useState('');
@@ -581,6 +583,38 @@ export default function Signup() {
   const [countryCode, setCountryCode] = useState('+91');
   const lastSubmittedOtpRef = useRef('');
 
+  // Referral States
+  const [referralCodeInput, setReferralCodeInput] = useState(() => {
+    return sessionStorage.getItem('referral_code') || localStorage.getItem('referral_code') || '';
+  });
+  const [referralApplied, setReferralApplied] = useState(false);
+  const [isApplyingReferral, setIsApplyingReferral] = useState(false);
+  const [referralMessage, setReferralMessage] = useState(null);
+
+  const handleApplyReferral = async (overrideCode) => {
+    const code = (typeof overrideCode === 'string' ? overrideCode : referralCodeInput).trim().toUpperCase();
+    if (!code) return;
+    setIsApplyingReferral(true);
+    setReferralMessage(null);
+    try {
+      const res = await api.post('/referral/apply', { referralCode: code });
+      setReferralApplied(true);
+      setReferralMessage({ type: 'success', text: res.data?.message || `Referral code ${code} applied successfully!` });
+      sessionStorage.setItem('referral_code', code);
+      localStorage.setItem('referral_code', code);
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to apply referral code. Please check and try again.';
+      if (msg.includes('already applied') || msg.includes('already used')) {
+        setReferralApplied(true);
+        setReferralMessage({ type: 'success', text: msg });
+      } else {
+        setReferralMessage({ type: 'error', text: msg });
+      }
+    } finally {
+      setIsApplyingReferral(false);
+    }
+  };
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -606,6 +640,7 @@ export default function Signup() {
       setResendTimer(30);
       if (res.data?.otp) {
         setOtpCode(res.data.otp);
+        verifyOtp(res.data.otp);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to send OTP. Please try again.');
@@ -672,19 +707,28 @@ export default function Signup() {
           const response = await api.get('/users/profile');
           const data = response.data;
           if (data) {
-            setEmail(data.email || '');
+            const userEmail = data.email || data.user?.email || sessionStorage.getItem('prefill_email') || localStorage.getItem('user_email') || '';
+            if (userEmail) {
+              setEmail(userEmail);
+              sessionStorage.setItem('prefill_email', userEmail);
+              localStorage.setItem('user_email', userEmail);
+            }
             if (data.phone) {
               const cleanedPhone = data.phone.trim();
               const match = cleanedPhone.match(/^(\+\d+)\s+(.*)$/);
               if (match) {
                 setCountryCode(match[1]);
-                setPhone(match[2]);
-              } else {
+                setPhone(match[2].trim());
+              } else if (cleanedPhone !== '+91') {
                 setPhone(cleanedPhone);
               }
             }
-            if (data.email) {
-              setIsEmailVerified(false);
+            if (data.isEmailVerified || data.isVerified) {
+              setIsEmailVerified(true);
+            }
+            if (data.referredBy) {
+              setReferralApplied(true);
+              setReferralMessage({ type: 'success', text: 'Referral bonus is active for your account' });
             }
             if (data.profile) {
               setProfileFor(data.profile.profileFor || '');
@@ -1627,33 +1671,53 @@ export default function Signup() {
 
                   {/* Conditional Gender Selector */}
                   {profileFor === 'Myself' && (
-                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 space-y-3 pt-2">
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 space-y-3 pt-3">
                       <h3 className="text-sm font-bold text-gray-900">Gender of the profile owner</h3>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-5">
                         {/* Male Card */}
                         <button
                           type="button"
                           onClick={() => setGender('Male')}
-                          className={`flex flex-col items-center justify-center p-6 bg-white border rounded-2xl transition-all duration-200 shadow-sm hover:scale-[1.02] cursor-pointer ${gender === 'Male'
-                            ? 'border-[#5D34F7] ring-1 ring-[#5D34F7] text-[#5D34F7]'
-                            : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                            }`}
+                          className={`relative flex flex-col items-center justify-center p-6 sm:p-8 bg-white border-2 rounded-3xl transition-all duration-200 cursor-pointer group ${
+                            gender === 'Male'
+                              ? 'border-[#5D34F7] bg-violet-50/20 ring-2 ring-[#5D34F7]/20 shadow-md text-[#5D34F7]'
+                              : 'border-slate-200 hover:border-slate-300 hover:shadow-sm text-slate-700'
+                          }`}
                         >
-                          <img src={maleAvatar} alt="Male" className="w-16 h-16 object-contain mb-2" />
-                          <span className="text-sm font-bold">Male</span>
+                          <div className="w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center mb-3 transition-transform duration-200 group-hover:scale-105">
+                            <img src={maleAvatar} alt="Male" className="w-full h-full object-contain" />
+                          </div>
+                          <span className={`text-base font-bold transition-colors ${gender === 'Male' ? 'text-[#5D34F7]' : 'text-slate-800'}`}>
+                            Male
+                          </span>
+                          {gender === 'Male' && (
+                            <span className="absolute top-3 right-3 w-5 h-5 rounded-full bg-[#5D34F7] text-white text-[11px] font-black flex items-center justify-center shadow-xs">
+                              ✓
+                            </span>
+                          )}
                         </button>
 
                         {/* Female Card */}
                         <button
                           type="button"
                           onClick={() => setGender('Female')}
-                          className={`flex flex-col items-center justify-center p-6 bg-white border rounded-2xl transition-all duration-200 shadow-sm hover:scale-[1.02] cursor-pointer ${gender === 'Female'
-                            ? 'border-[#5D34F7] ring-1 ring-[#5D34F7] text-[#5D34F7]'
-                            : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                            }`}
+                          className={`relative flex flex-col items-center justify-center p-6 sm:p-8 bg-white border-2 rounded-3xl transition-all duration-200 cursor-pointer group ${
+                            gender === 'Female'
+                              ? 'border-[#5D34F7] bg-violet-50/20 ring-2 ring-[#5D34F7]/20 shadow-md text-[#5D34F7]'
+                              : 'border-slate-200 hover:border-slate-300 hover:shadow-sm text-slate-700'
+                          }`}
                         >
-                          <img src={femaleAvatar} alt="Female" className="w-16 h-16 object-contain mb-2" />
-                          <span className="text-sm font-bold">Female</span>
+                          <div className="w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center mb-3 transition-transform duration-200 group-hover:scale-105">
+                            <img src={femaleAvatar} alt="Female" className="w-full h-full object-contain" />
+                          </div>
+                          <span className={`text-base font-bold transition-colors ${gender === 'Female' ? 'text-[#5D34F7]' : 'text-slate-800'}`}>
+                            Female
+                          </span>
+                          {gender === 'Female' && (
+                            <span className="absolute top-3 right-3 w-5 h-5 rounded-full bg-[#5D34F7] text-white text-[11px] font-black flex items-center justify-center shadow-xs">
+                              ✓
+                            </span>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -1808,38 +1872,55 @@ export default function Signup() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
-                      <label className="text-xs font-bold text-gray-700 block">Email Address</label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-gray-700 block">Email Address</label>
+                        {isEmailVerified ? (
+                          <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                            <span>✓</span> Verified
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                            Verification Required
+                          </span>
+                        )}
+                      </div>
                       <div className="relative flex items-center">
                         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#5D34F7]">
                           <Icons.Mail />
                         </div>
                         <input
+                          id="signup-email-input"
                           type="email"
-                          placeholder="Email ID"
+                          placeholder="Enter your email address"
                           value={email}
-                          disabled={isEmailVerified}
                           onChange={(e) => {
-                            setEmail(e.target.value);
+                            const val = e.target.value;
+                            setEmail(val);
+                            sessionStorage.setItem('prefill_email', val);
+                            localStorage.setItem('user_email', val);
                             setIsEmailVerified(false);
                             setIsOtpSent(false);
+                            setOtpCode('');
                           }}
-                          className={`w-full pl-12 pr-28 py-3.5 border rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent text-[15px] bg-white/70 shadow-sm transition-all ${isEmailVerified ? 'border-emerald-500 bg-emerald-50/10 text-emerald-800' : 'border-gray-300'
-                            }`}
+                          className={`w-full pl-12 pr-32 py-3.5 border rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] focus:border-transparent text-[15px] bg-white shadow-xs transition-all ${
+                            isEmailVerified ? 'border-emerald-500 bg-emerald-50/15 text-slate-900 font-semibold' : 'border-gray-300 text-slate-900'
+                          }`}
                         />
                         {isEmailVerified ? (
-                          <div className="absolute right-3 flex items-center gap-2">
-                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 flex items-center gap-1">
-                              ✓ Email Verified
-                            </span>
+                          <div className="absolute right-2 flex items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => {
                                 setIsEmailVerified(false);
                                 setIsOtpSent(false);
+                                setOtpCode('');
+                                const el = document.getElementById('signup-email-input');
+                                if (el) el.focus();
                               }}
-                              className="text-xs font-bold text-gray-500 hover:text-red-500 underline cursor-pointer"
+                              className="px-2.5 py-1 text-xs font-bold text-slate-600 hover:text-[#5D34F7] bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer border border-slate-200 shadow-2xs"
+                              title="Click to edit or change your email address"
                             >
-                              Edit
+                              Edit Email
                             </button>
                           </div>
                         ) : (
@@ -1847,12 +1928,28 @@ export default function Signup() {
                             type="button"
                             onClick={sendOtp}
                             disabled={isSendingOtp || !email.trim()}
-                            className="absolute right-2 px-3 py-1.5 bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
+                            className="absolute right-2 px-3.5 py-1.5 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1"
                           >
-                            {isSendingOtp ? 'Sending...' : isOtpSent ? 'Resend' : 'Verify Email'}
+                            {isSendingOtp ? (
+                              <>
+                                <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                <span>Sending...</span>
+                              </>
+                            ) : isOtpSent ? (
+                              resendTimer > 0 ? `Resend (${resendTimer}s)` : 'Resend'
+                            ) : (
+                              'Verify Email'
+                            )}
                           </button>
                         )}
                       </div>
+                      <p className="text-[11px] text-slate-500 font-medium">
+                        {isEmailVerified ? (
+                          <span className="text-emerald-700">✓ Your email is verified. You can click <strong>Edit Email</strong> anytime to change it.</span>
+                        ) : (
+                          <span>Your email ID is editable. Click <strong>Verify Email</strong> to receive the OTP code and verify.</span>
+                        )}
+                      </p>
 
                       {/* OTP Verification Input Box */}
                       {isOtpSent && !isEmailVerified && (
@@ -1969,6 +2066,63 @@ export default function Signup() {
                           </div>
                         );
                       })()}
+                    </div>
+
+                    {/* Referral Code Section */}
+                    <div className="md:col-span-2 pt-4 border-t border-slate-100">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center text-xs">
+                            🎁
+                          </span>
+                          <label className="text-xs font-bold text-gray-700 block">
+                            Have a Referral Code? (Optional)
+                          </label>
+                        </div>
+                        {referralApplied && (
+                          <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                            <span>✓</span> Applied
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            placeholder="e.g. REF-123456"
+                            value={referralCodeInput}
+                            disabled={referralApplied || isApplyingReferral}
+                            onChange={(e) => {
+                              setReferralCodeInput(e.target.value.toUpperCase());
+                              setReferralMessage(null);
+                            }}
+                            className={`w-full px-4 py-3 border rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#5D34F7] text-[14px] font-mono uppercase tracking-wider transition ${
+                              referralApplied 
+                                ? 'bg-emerald-50/25 border-emerald-300 text-emerald-800 font-bold' 
+                                : 'bg-white border-gray-200 text-gray-800'
+                            }`}
+                          />
+                        </div>
+                        {!referralApplied && (
+                          <button
+                            type="button"
+                            disabled={!referralCodeInput.trim() || isApplyingReferral}
+                            onClick={() => handleApplyReferral()}
+                            className="px-5 py-3 bg-[#5D34F7] hover:bg-[#4d28d6] disabled:opacity-50 text-white text-xs font-black rounded-2xl transition shadow-xs cursor-pointer shrink-0"
+                          >
+                            {isApplyingReferral ? 'Applying...' : 'Apply Code'}
+                          </button>
+                        )}
+                      </div>
+
+                      {referralMessage && (
+                        <p className={`text-[11px] mt-1.5 font-semibold ${
+                          referralMessage.type === 'success' ? 'text-emerald-600' : 'text-rose-500'
+                        }`}>
+                          {referralMessage.text}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>

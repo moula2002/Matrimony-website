@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faCog, faUserShield, faBell, faKey, faCrown, faTrashAlt, 
   faCheck, faSpinner, faEye, faLock, faSlidersH, faShieldAlt, faPhoneSlash,
-  faEyeSlash, faClock, faUndo, faExclamationTriangle
+  faEyeSlash, faClock, faUndo, faExclamationTriangle, faGift, faCopy, faShareAlt
 } from '@fortawesome/free-solid-svg-icons';
 import api from '../api/axios';
 
@@ -13,6 +13,9 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [privacyError, setPrivacyError] = useState('');
+  const [userReferralCode, setUserReferralCode] = useState('');
+  const [copiedSettingCode, setCopiedSettingCode] = useState(false);
+  const [copiedSettingLink, setCopiedSettingLink] = useState(false);
   
   // Settings Form State
   const [privacyPhoto, setPrivacyPhoto] = useState('everyone');
@@ -76,6 +79,15 @@ export default function Settings() {
         }
         if (s.hideEndDate) {
           setHideEndDate(s.hideEndDate);
+        }
+
+        try {
+          const refRes = await api.get('/referral/me');
+          if (refRes.data?.referralCode) {
+            setUserReferralCode(refRes.data.referralCode);
+          }
+        } catch (refErr) {
+          console.warn('Could not fetch referral in settings:', refErr);
         }
       } catch (err) {
         console.error('Error fetching settings:', err);
@@ -348,6 +360,11 @@ export default function Settings() {
             <a href="#membership" className="flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 text-slate-600 font-extrabold text-xs">
               <FontAwesomeIcon icon={faCrown} />
               Membership Plans
+            </a>
+            <a href="#referral" className="flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 text-slate-600 font-extrabold text-xs">
+              <FontAwesomeIcon icon={faGift} className="text-amber-500" />
+              <span>Refer & Earn</span>
+              <span className="ml-auto px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-800">Reward</span>
             </a>
           </div>
 
@@ -661,6 +678,90 @@ export default function Settings() {
                       Manage Plan
                     </button>
                   )}
+                </div>
+              </div>
+            </div>
+
+            {/* Refer & Earn Section */}
+            <div id="referral" className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-6">
+              <div className="flex items-center justify-between border-b pb-2">
+                <h3 className="font-extrabold text-slate-800 text-sm tracking-wide uppercase flex items-center gap-2">
+                  <FontAwesomeIcon icon={faGift} className="text-amber-500" />
+                  <span>Refer & Earn Program</span>
+                </h3>
+                <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-amber-200">
+                  Earn Premium Days
+                </span>
+              </div>
+
+              <div className="p-6 rounded-2xl bg-gradient-to-br from-violet-50 to-indigo-50/50 border border-violet-100 space-y-4">
+                <div>
+                  <h4 className="text-base font-extrabold text-slate-900">
+                    Invite Friends & Unlock Free Premium Benefits
+                  </h4>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Share your personal code with prospective brides & grooms. When they subscribe, you both receive bonus free premium days!
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                  {/* Referral Code Box */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Your Referral Code</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-base font-black text-slate-800">
+                        {userReferralCode || 'REF-LOADING'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (userReferralCode) {
+                            navigator.clipboard.writeText(userReferralCode);
+                            setCopiedSettingCode(true);
+                            setTimeout(() => setCopiedSettingCode(false), 2000);
+                          }
+                        }}
+                        className="px-2.5 py-1 text-xs font-bold text-[#5D34F7] bg-violet-50 hover:bg-violet-100 rounded-lg transition cursor-pointer"
+                      >
+                        <FontAwesomeIcon icon={copiedSettingCode ? faCheck : faCopy} className="mr-1" />
+                        <span>{copiedSettingCode ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Referral Link Box */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Your Invite Link</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-slate-500 truncate max-w-[150px]">
+                        {userReferralCode ? `${window.location.origin}/signup?ref=${userReferralCode}` : 'Generating link...'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (userReferralCode) {
+                            navigator.clipboard.writeText(`${window.location.origin}/signup?ref=${userReferralCode}`);
+                            setCopiedSettingLink(true);
+                            setTimeout(() => setCopiedSettingLink(false), 2000);
+                          }
+                        }}
+                        className="px-2.5 py-1 text-xs font-bold text-[#5D34F7] bg-violet-50 hover:bg-violet-100 rounded-lg transition cursor-pointer shrink-0"
+                      >
+                        <FontAwesomeIcon icon={copiedSettingLink ? faCheck : faShareAlt} className="mr-1" />
+                        <span>{copiedSettingLink ? 'Copied' : 'Copy Link'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <a
+                    href="/referral"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#5D34F7] hover:bg-[#4d28d6] text-white text-xs font-extrabold rounded-xl shadow-md transition"
+                  >
+                    <span>View Full Referral Dashboard & Friends</span>
+                    <span>→</span>
+                  </a>
                 </div>
               </div>
             </div>

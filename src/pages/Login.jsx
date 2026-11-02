@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEnvelope, faLock, faSpinner, faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
+import { faEnvelope, faLock, faSpinner, faEye, faEyeSlash, faGift } from '@fortawesome/free-solid-svg-icons';
 import signupBg from '../assets/signup_bg.png';
 import navbarLogo from '../assets/navbar_logo.png';
 import navbarName from '../assets/navbar_name.png';
@@ -21,6 +21,9 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [referralCode, setReferralCode] = useState(() => {
+    return sessionStorage.getItem('referral_code') || localStorage.getItem('referral_code') || '';
+  });
 
   const navigate = useNavigate();
 
@@ -58,14 +61,21 @@ export default function Login() {
 
     try {
       const url = isLogin ? '/auth/login' : '/auth/register';
-      const response = await api.post(url, {
+      const payload = {
         email: email.trim(),
         password: password.trim(),
-      });
+        ...(!isLogin && referralCode.trim() ? { referralCode: referralCode.trim().toUpperCase() } : {})
+      };
+      const response = await api.post(url, payload);
 
       // Assuming backend returns token on both login and register like the mobile app
       if (response.data.token) {
         localStorage.setItem('token', response.data.token);
+        sessionStorage.setItem('prefill_email', email.trim());
+        localStorage.setItem('user_email', email.trim());
+        if (response.data.user) {
+          localStorage.setItem('user', JSON.stringify(response.data.user));
+        }
 
         if (isLogin) {
           if (response.data.is_onboarding_complete) {
@@ -96,12 +106,20 @@ export default function Login() {
       console.log("Token obtained:", idToken.substring(0, 10) + "...");
 
       const res = await api.post('/auth/google-login', {
-        idToken
+        idToken,
+        ...(referralCode.trim() ? { referralCode: referralCode.trim().toUpperCase() } : {})
       });
       console.log("Backend login response:", res.data);
 
       if (res.data.token) {
         localStorage.setItem('token', res.data.token);
+        if (result.user?.email) {
+          sessionStorage.setItem('prefill_email', result.user.email);
+          localStorage.setItem('user_email', result.user.email);
+        }
+        if (res.data.user) {
+          localStorage.setItem('user', JSON.stringify(res.data.user));
+        }
         if (res.data.is_onboarding_complete) {
           navigate('/home');
         } else {
@@ -329,6 +347,27 @@ export default function Login() {
                     >
                       Forgot Password?
                     </button>
+                  </div>
+                )}
+
+                {/* Referral Code (when Registering) */}
+                {!isLogin && (
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                      <FontAwesomeIcon icon={faGift} className="text-amber-500 text-sm" />
+                    </div>
+                    <input
+                      type="text"
+                      value={referralCode}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase();
+                        setReferralCode(val);
+                        sessionStorage.setItem('referral_code', val);
+                        localStorage.setItem('referral_code', val);
+                      }}
+                      className="block w-full pl-12 pr-4 py-3.5 bg-slate-50/50 hover:bg-slate-50 border border-slate-200 focus:bg-white focus:border-[#5D34F7] focus:ring-4 focus:ring-[#5D34F7]/10 focus:outline-none rounded-2xl text-slate-800 placeholder-slate-400 text-[15px] font-mono uppercase tracking-wider transition duration-200"
+                      placeholder="Referral Code (Optional)"
+                    />
                   </div>
                 )}
 
